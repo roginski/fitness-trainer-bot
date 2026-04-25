@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .api import router as api_router
+
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 
@@ -17,6 +19,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.include_router(api_router)
 
     @app.get("/trainer")
     async def trainer_app():
