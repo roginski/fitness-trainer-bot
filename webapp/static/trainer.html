@@ -398,7 +398,7 @@
   // ── Delete exercise ───────────────────────────────────────────────────────
 
   async function deleteExercise(id) {
-    tg.showConfirm('Remove this exercise?', async (confirmed) => {
+    const doDelete = async (confirmed) => {
       if (!confirmed) return;
       const res = await fetch(`/api/exercises/${id}?user_id=${userId}`, { method: 'DELETE', headers: { 'ngrok-skip-browser-warning': '1' } });
       if (res.ok) {
@@ -406,7 +406,9 @@
         exercises = data.exercises;
         renderExercises();
       }
-    });
+    };
+    if (tg.initDataUnsafe?.user) tg.showConfirm('Remove this exercise?', doDelete);
+    else doDelete(confirm('Remove this exercise?'));
   }
 
   // ── Publish ───────────────────────────────────────────────────────────────
@@ -416,7 +418,7 @@
       tg.showAlert('Add at least one exercise before publishing.');
       return;
     }
-    tg.showConfirm('Publish this workout? Your trainee will be notified.', async (confirmed) => {
+    const doPublish = async (confirmed) => {
       if (!confirmed) return;
       const res = await fetch(`/api/workout/${workoutId}/publish`, {
         method: 'POST',
@@ -424,11 +426,15 @@
         body: JSON.stringify({ user_id: userId }),
       });
       if (res.ok) {
-        tg.showAlert('Workout published! ✅', () => tg.close());
+        if (tg.initDataUnsafe?.user) tg.showAlert('Workout published! ✅', () => tg.close());
+        else alert('Workout published! ✅');
       } else {
-        tg.showAlert('Failed to publish.');
+        if (tg.initDataUnsafe?.user) tg.showAlert('Failed to publish.');
+        else alert('Failed to publish.');
       }
-    });
+    };
+    if (tg.initDataUnsafe?.user) tg.showConfirm('Publish this workout? Your trainee will be notified.', doPublish);
+    else doPublish(confirm('Publish this workout? Your trainee will be notified.'));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

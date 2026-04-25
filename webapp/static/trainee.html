@@ -1,2 +1,402 @@
 <!DOCTYPE html>
-<html><body><h1>Trainee app - coming soon</h1></body></html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>My Workout</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg:    var(--tg-theme-bg-color, #ffffff);
+      --bg2:   var(--tg-theme-secondary-bg-color, #f1f1f1);
+      --text:  var(--tg-theme-text-color, #000000);
+      --hint:  var(--tg-theme-hint-color, #999999);
+      --btn:   var(--tg-theme-button-color, #2481cc);
+      --btn-t: var(--tg-theme-button-text-color, #ffffff);
+      --green: #34c759;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      padding: 16px;
+      padding-bottom: 88px;
+    }
+
+    /* ── Header ── */
+    .header { margin-bottom: 20px; }
+    .header h1 { font-size: 20px; font-weight: 700; }
+    .header p { color: var(--hint); font-size: 13px; margin-top: 4px; }
+
+    /* ── Exercise card ── */
+    .exercise-card {
+      background: var(--bg2);
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .card-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .card-title-left { display: flex; align-items: center; gap: 10px; }
+    .status-icon { font-size: 20px; flex-shrink: 0; }
+    .ex-info {}
+    .ex-num { font-size: 12px; color: var(--hint); }
+    .ex-name { font-weight: 600; font-size: 15px; }
+    .chevron { color: var(--hint); font-size: 18px; transition: transform 0.2s; }
+    .chevron.open { transform: rotate(90deg); }
+
+    /* ── Card body ── */
+    .card-body { padding: 0 14px 14px; display: none; }
+    .card-body.open { display: block; }
+
+    /* ── Sets table ── */
+    .sets-grid {
+      display: grid;
+      grid-template-columns: 32px 1fr 1fr;
+      gap: 6px 8px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .col-head { font-size: 11px; color: var(--hint); text-transform: uppercase; letter-spacing: 0.5px; }
+    .set-num { color: var(--hint); font-size: 13px; text-align: center; }
+    .set-input-wrap { position: relative; }
+    .set-planned {
+      font-size: 11px;
+      color: var(--hint);
+      position: absolute;
+      top: -16px;
+      left: 8px;
+    }
+    .set-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1.5px solid transparent;
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .set-input:focus { border-color: var(--btn); }
+    .set-input.logged { border-color: var(--green); }
+
+    /* ── Comment ── */
+    .comment-label { font-size: 12px; color: var(--hint); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .comment-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1.5px solid transparent;
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      resize: none;
+      min-height: 72px;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .comment-input:focus { border-color: var(--btn); }
+    .btn-log {
+      width: 100%;
+      background: var(--btn);
+      color: var(--btn-t);
+      border: none;
+      border-radius: 10px;
+      padding: 11px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 14px;
+    }
+    .btn-log:disabled { opacity: 0.4; cursor: default; }
+    .divider { height: 1px; background: var(--bg); margin: 14px 0; }
+
+    /* ── Bottom bar ── */
+    .bottom-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      padding: 12px 16px;
+      background: var(--bg);
+      border-top: 1px solid var(--bg2);
+    }
+    .btn-complete {
+      width: 100%;
+      background: var(--green);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 13px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-complete:disabled { opacity: 0.35; cursor: default; }
+
+    /* ── States ── */
+    .empty { text-align: center; color: var(--hint); padding: 48px 0; }
+    .empty-icon { font-size: 40px; margin-bottom: 8px; }
+    .spinner { text-align: center; padding: 48px; color: var(--hint); }
+    .done-banner {
+      text-align: center;
+      padding: 20px;
+      color: var(--green);
+      font-weight: 600;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>💪 My Workout</h1>
+  <p id="subtitle">Loading…</p>
+</div>
+
+<div id="main-content">
+  <div class="spinner">Loading…</div>
+</div>
+
+<div class="bottom-bar">
+  <button class="btn-complete" id="btn-complete" disabled onclick="completeWorkout()">
+    Complete Workout
+  </button>
+</div>
+
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.expand();
+  tg.ready();
+
+  const userId = tg.initDataUnsafe?.user?.id
+    || new URLSearchParams(location.search).get('user_id');
+
+  const H = { 'ngrok-skip-browser-warning': '1' };
+  const HJ = { ...H, 'Content-Type': 'application/json' };
+
+  let sessionId = null;
+  let exercises = [];
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+
+  async function init() {
+    const res = await fetch(`/api/workout/current?user_id=${userId}`, { headers: H });
+    if (!res.ok) { showError('Failed to load workout.'); return; }
+    const data = await res.json();
+
+    if (!data.workout) {
+      document.getElementById('subtitle').textContent = 'No workout assigned yet.';
+      document.getElementById('main-content').innerHTML =
+        `<div class="empty"><div class="empty-icon">🏖️</div><p>Your trainer hasn't published a workout yet.</p></div>`;
+      return;
+    }
+
+    sessionId = data.session_id;
+    exercises = data.workout.exercises;
+    document.getElementById('subtitle').textContent =
+      `${exercises.length} exercise${exercises.length !== 1 ? 's' : ''}`;
+    render();
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  function render() {
+    const container = document.getElementById('main-content');
+    container.innerHTML = '';
+
+    exercises.forEach((ex, i) => {
+      const allLogged = ex.planned_sets.every(ps => ps.executed);
+      const icon = allLogged ? '✅' : '⬜';
+
+      const card = document.createElement('div');
+      card.className = 'exercise-card';
+      card.id = `card-${ex.id}`;
+
+      const setsHtml = buildSetsHtml(ex);
+
+      card.innerHTML = `
+        <div class="card-title" onclick="toggleCard(${ex.id})">
+          <div class="card-title-left">
+            <span class="status-icon" id="icon-${ex.id}">${icon}</span>
+            <div class="ex-info">
+              <div class="ex-num">Exercise ${i + 1}</div>
+              <div class="ex-name">${esc(ex.description)}</div>
+            </div>
+          </div>
+          <span class="chevron" id="chev-${ex.id}">›</span>
+        </div>
+        <div class="card-body" id="body-${ex.id}">
+          ${setsHtml}
+          <div class="divider"></div>
+          <div class="comment-label">Comment (optional)</div>
+          <textarea class="comment-input" id="comment-${ex.id}"
+            placeholder="How did it feel?">${ex.comment || ''}</textarea>
+          <button class="btn-log" onclick="logExercise(${ex.id})">Save</button>
+        </div>`;
+
+      container.appendChild(card);
+    });
+
+    updateCompleteButton();
+  }
+
+  function buildSetsHtml(ex) {
+    if (ex.planned_sets.length === 0) return '<p style="color:var(--hint);font-size:13px">No sets planned.</p>';
+
+    let html = `<div class="sets-grid" style="margin-top:8px">
+      <span class="col-head"></span>
+      <span class="col-head">Reps</span>
+      <span class="col-head">Weight kg</span>`;
+
+    ex.planned_sets.forEach(ps => {
+      const execReps   = ps.executed?.reps   ?? '';
+      const execWeight = ps.executed?.weight ?? '';
+      const loggedClass = ps.executed ? 'logged' : '';
+
+      const plannedReps   = ps.reps   != null ? `plan: ${ps.reps}`   : '';
+      const plannedWeight = ps.weight != null ? `plan: ${ps.weight}` : '';
+
+      html += `
+        <span class="set-num">${ps.set_number}</span>
+        <div class="set-input-wrap">
+          ${plannedReps ? `<span class="set-planned">${plannedReps}</span>` : ''}
+          <input class="set-input ${loggedClass}" type="number" min="0"
+            id="reps-${ps.id}" value="${execReps}" placeholder="—"
+            style="${plannedReps ? 'margin-top:18px' : ''}">
+        </div>
+        <div class="set-input-wrap">
+          ${plannedWeight ? `<span class="set-planned">${plannedWeight}</span>` : ''}
+          <input class="set-input ${loggedClass}" type="number" min="0" step="0.5"
+            id="wt-${ps.id}" value="${execWeight}" placeholder="—"
+            style="${plannedWeight ? 'margin-top:18px' : ''}">
+        </div>`;
+    });
+
+    html += '</div>';
+    return html;
+  }
+
+  // ── Toggle card ───────────────────────────────────────────────────────────
+
+  function toggleCard(exId) {
+    const body = document.getElementById(`body-${exId}`);
+    const chev = document.getElementById(`chev-${exId}`);
+    const isOpen = body.classList.contains('open');
+    // Close all
+    document.querySelectorAll('.card-body').forEach(b => b.classList.remove('open'));
+    document.querySelectorAll('.chevron').forEach(c => c.classList.remove('open'));
+    // Open clicked if it was closed
+    if (!isOpen) {
+      body.classList.add('open');
+      chev.classList.add('open');
+    }
+  }
+
+  // ── Log exercise ──────────────────────────────────────────────────────────
+
+  async function logExercise(exId) {
+    const ex = exercises.find(e => e.id === exId);
+    if (!ex) return;
+
+    // Save each set
+    for (const ps of ex.planned_sets) {
+      const repsVal   = document.getElementById(`reps-${ps.id}`)?.value;
+      const weightVal = document.getElementById(`wt-${ps.id}`)?.value;
+      await fetch('/api/sets/log', {
+        method: 'POST',
+        headers: HJ,
+        body: JSON.stringify({
+          session_id: sessionId,
+          planned_set_id: ps.id,
+          actual_reps:   repsVal   ? parseInt(repsVal)    : null,
+          actual_weight: weightVal ? parseFloat(weightVal) : null,
+          user_id: userId,
+        }),
+      });
+      ps.executed = {
+        reps:   repsVal   ? parseInt(repsVal)    : null,
+        weight: weightVal ? parseFloat(weightVal) : null,
+      };
+    }
+
+    // Save comment
+    const comment = document.getElementById(`comment-${exId}`)?.value.trim();
+    if (comment) {
+      await fetch('/api/comments', {
+        method: 'POST',
+        headers: HJ,
+        body: JSON.stringify({ session_id: sessionId, exercise_id: exId, comment, user_id: userId }),
+      });
+      ex.comment = comment;
+    }
+
+    // Update icon
+    document.getElementById(`icon-${exId}`).textContent = '✅';
+    // Mark inputs as logged
+    ex.planned_sets.forEach(ps => {
+      document.getElementById(`reps-${ps.id}`)?.classList.add('logged');
+      document.getElementById(`wt-${ps.id}`)?.classList.add('logged');
+    });
+
+    updateCompleteButton();
+    // Close card
+    document.getElementById(`body-${exId}`)?.classList.remove('open');
+    document.getElementById(`chev-${exId}`)?.classList.remove('open');
+  }
+
+  // ── Complete ──────────────────────────────────────────────────────────────
+
+  function updateCompleteButton() {
+    const allDone = exercises.every(ex => ex.planned_sets.every(ps => ps.executed));
+    document.getElementById('btn-complete').disabled = !allDone;
+  }
+
+  async function completeWorkout() {
+    const doComplete = async () => {
+      const res = await fetch(`/api/sessions/${sessionId}/complete`, {
+        method: 'POST',
+        headers: HJ,
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (res.ok) {
+        document.getElementById('main-content').innerHTML =
+          `<div class="done-banner">🎉 Workout complete! Great job!</div>`;
+        document.getElementById('btn-complete').style.display = 'none';
+        if (tg.initDataUnsafe?.user) tg.close();
+      }
+    };
+
+    if (tg.initDataUnsafe?.user) {
+      tg.showConfirm('Mark this workout as complete?', (confirmed) => {
+        if (confirmed) doComplete();
+      });
+    } else {
+      if (confirm('Mark this workout as complete?')) doComplete();
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function esc(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function showError(msg) {
+    document.getElementById('main-content').innerHTML =
+      `<div class="empty"><p style="color:#ff3b30">${msg}</p></div>`;
+  }
+
+  init();
+</script>
+</body>
+</html>
