@@ -30,15 +30,22 @@ async def run_bot() -> None:
     await dp.start_polling(bot)
 
 
-async def run_web() -> None:
-    config = uvicorn.Config(create_app(), host="0.0.0.0", port=8000, log_level="warning")
-    server = uvicorn.Server(config)
-    await server.serve()
-
-
 async def main() -> None:
     await init_db()
-    await asyncio.gather(run_bot(), run_web())
+
+    config = uvicorn.Config(create_app(), host="0.0.0.0", port=8000, log_level="warning", lifespan="off")
+    server = uvicorn.Server(config)
+    server.install_signal_handlers = lambda: None  # aiogram owns SIGINT/SIGTERM
+
+    bot_task = asyncio.create_task(run_bot())
+    web_task = asyncio.create_task(server.serve())
+
+    # When the bot stops (Ctrl+C), shut down the web server too
+    done, pending = await asyncio.wait([bot_task, web_task], return_when=asyncio.FIRST_COMPLETED)
+    server.should_exit = True
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
 
 
 if __name__ == "__main__":
