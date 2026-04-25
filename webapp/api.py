@@ -66,8 +66,7 @@ async def get_or_create_draft(user_id: int):
             workout = Workout()
             db.add(workout)
             await db.commit()
-            await db.refresh(workout)
-            workout.exercises = []
+            return {"workout_id": workout.id, "exercises": []}
 
         return {"workout_id": workout.id, "exercises": _serialize_exercises(workout.exercises)}
 

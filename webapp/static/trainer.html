@@ -225,8 +225,10 @@
 
   // ── Init ─────────────────────────────────────────────────────────────────
 
+  const fetchOpts = { headers: { 'ngrok-skip-browser-warning': '1' } };
+
   async function init() {
-    const res = await fetch(`/api/workout/draft?user_id=${userId}`);
+    const res = await fetch(`/api/workout/draft?user_id=${userId}`, fetchOpts);
     if (!res.ok) { showError('Failed to load workout'); return; }
     const data = await res.json();
     workoutId = data.workout_id;
@@ -379,7 +381,7 @@
 
     const res = await fetch(`/api/workout/${workoutId}/exercises`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
       body: JSON.stringify({ description: name, sets, user_id: userId }),
     });
 
@@ -398,7 +400,7 @@
   async function deleteExercise(id) {
     tg.showConfirm('Remove this exercise?', async (confirmed) => {
       if (!confirmed) return;
-      const res = await fetch(`/api/exercises/${id}?user_id=${userId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/exercises/${id}?user_id=${userId}`, { method: 'DELETE', headers: { 'ngrok-skip-browser-warning': '1' } });
       if (res.ok) {
         const data = await res.json();
         exercises = data.exercises;
@@ -418,7 +420,7 @@
       if (!confirmed) return;
       const res = await fetch(`/api/workout/${workoutId}/publish`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
         body: JSON.stringify({ user_id: userId }),
       });
       if (res.ok) {
