@@ -1,12 +1,15 @@
+import secrets
+from datetime import datetime, timedelta, timezone
+
 from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import MenuButtonWebApp, Message, WebAppInfo
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebApp, Message, WebAppInfo
 from sqlalchemy import func, select
 
 from ..config import WEBAPP_URL
 from ..db import async_session
-from ..models import User
+from ..models import AuthToken, User
 
 router = Router()
 
@@ -22,14 +25,16 @@ async def _set_menu_button(bot: Bot, chat_id: int, url: str, label: str) -> None
 
 async def _welcome(message: Message, bot: Bot, user: User) -> None:
     if user.role == "trainer":
-        await _set_menu_button(bot, user.telegram_id, f"{WEBAPP_URL}/trainer", "Workout Builder")
+        url = f"{WEBAPP_URL}/trainer?user_id={user.telegram_id}"
+        await _set_menu_button(bot, user.telegram_id, url, "Workout Builder")
         await message.answer(
             f"Hello, {user.name}!\n\n"
             "Tap <b>Workout Builder</b> below to create a workout.\n"
             "/report — get the latest completed workout report"
         )
     else:
-        await _set_menu_button(bot, user.telegram_id, f"{WEBAPP_URL}/trainee", "My Workout")
+        url = f"{WEBAPP_URL}/trainee?user_id={user.telegram_id}"
+        await _set_menu_button(bot, user.telegram_id, url, "My Workout")
         await message.answer(
             f"Hello, {user.name}!\n\n"
             "Tap <b>My Workout</b> below to log your workout."
@@ -73,6 +78,38 @@ async def cmd_register(message: Message, bot: Bot) -> None:
 
     await message.answer(f"Registered as {role}!")
     await _welcome(message, bot, user)
+
+
+@router.message(Command("open"))
+async def cmd_open(message: Message) -> None:
+    async with async_session() as db:
+        user = await db.get(User, message.from_user.id)
+    if not user:
+        await message.answer("Use /register first.")
+        return
+    if not WEBAPP_URL:
+        await message.answer("Web app URL is not configured.")
+        return
+
+    token = secrets.token_hex(16)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    async with async_session() as db:
+        db.add(AuthToken(token=token, telegram_id=user.telegram_id, expires_at=expires_at))
+        await db.commit()
+
+    if user.role == "trainer":
+        url = f"{WEBAPP_URL}/trainer?token={token}"
+        label = "Open Workout Builder"
+    else:
+        url = f"{WEBAPP_URL}/trainee?token={token}"
+        label = "Open My Workout"
+
+    await message.answer(
+        "Tap below to open the app:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=label, web_app=WebAppInfo(url=url))
+        ]]),
+    )
 
 
 @router.message(Command("cancel"))

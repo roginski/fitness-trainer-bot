@@ -101,3 +101,11 @@ class ExerciseComment(Base):
 
     session: Mapped["WorkoutSession"] = relationship(back_populates="comments")
     exercise: Mapped["Exercise"] = relationship()
+
+
+class AuthToken(Base):
+    __tablename__ = "auth_tokens"
+
+    token: Mapped[str] = mapped_column(primary_key=True)
+    telegram_id: Mapped[int] = mapped_column(ForeignKey("users.telegram_id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
