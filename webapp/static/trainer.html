@@ -199,6 +199,9 @@
   <h1>📋 Workout Builder</h1>
   <span class="badge" id="ex-count">0 exercises</span>
 </div>
+<div id="published-banner" style="display:none;background:var(--bg2);border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:13px;color:var(--hint)">
+  ✅ Published — changes are live. Use <strong>Save &amp; Notify</strong> to alert your trainee.
+</div>
 
 <div id="main-content">
   <div class="spinner">Loading…</div>
@@ -206,7 +209,8 @@
 
 <div class="bottom-bar">
   <button class="btn btn-outline" onclick="showForm()">＋ Add Exercise</button>
-  <button class="btn btn-primary" onclick="publish()">Publish</button>
+  <button class="btn btn-primary" id="btn-action" onclick="primaryAction()">Publish</button>
+  <button class="btn btn-outline" id="btn-new-workout" style="display:none" onclick="newWorkout()">New</button>
 </div>
 
 <script>
@@ -215,6 +219,7 @@
   tg.ready();
 
   let workoutId = null;
+  let isPublished = false;
   let exercises = [];
   let setCounter = 0;
   let formVisible = false;
@@ -242,7 +247,11 @@
     if (!res.ok) { showError('Failed to load workout'); return; }
     const data = await res.json();
     workoutId = data.workout_id;
+    isPublished = data.is_published;
     exercises = data.exercises;
+    document.getElementById('published-banner').style.display = isPublished ? '' : 'none';
+    document.getElementById('btn-action').textContent = isPublished ? 'Save & Notify' : 'Publish';
+    document.getElementById('btn-new-workout').style.display = isPublished ? '' : 'none';
     renderExercises();
   }
 
@@ -421,30 +430,62 @@
     else doDelete(confirm('Remove this exercise?'));
   }
 
-  // ── Publish ───────────────────────────────────────────────────────────────
+  // ── Publish / Save & Notify ───────────────────────────────────────────────
 
-  async function publish() {
+  async function primaryAction() {
     if (exercises.length === 0) {
-      tg.showAlert('Add at least one exercise before publishing.');
+      tg.showAlert('Add at least one exercise first.');
       return;
     }
-    const doPublish = async (confirmed) => {
+    if (isPublished) {
+      const msg = 'Notify your trainee that the workout has changed?';
+      const doNotify = async (confirmed) => {
+        if (!confirmed) return;
+        const res = await fetch(`/api/workout/${workoutId}/notify`, {
+          method: 'POST', headers: authHeaders(true), body: JSON.stringify({}),
+        });
+        if (res.ok) {
+          if (tg.initDataUnsafe?.user) tg.showAlert('Trainee notified! ✅', () => tg.close());
+          else alert('Trainee notified! ✅');
+        }
+      };
+      if (tg.initDataUnsafe?.user) tg.showConfirm(msg, doNotify);
+      else doNotify(confirm(msg));
+    } else {
+      const msg = 'Publish this workout? Your trainee will be notified.';
+      const doPublish = async (confirmed) => {
+        if (!confirmed) return;
+        const res = await fetch(`/api/workout/${workoutId}/publish`, {
+          method: 'POST', headers: authHeaders(true), body: JSON.stringify({}),
+        });
+        if (res.ok) {
+          if (tg.initDataUnsafe?.user) tg.showAlert('Workout published! ✅', () => tg.close());
+          else alert('Workout published! ✅');
+        }
+      };
+      if (tg.initDataUnsafe?.user) tg.showConfirm(msg, doPublish);
+      else doPublish(confirm(msg));
+    }
+  }
+
+  async function newWorkout() {
+    const doCreate = async (confirmed) => {
       if (!confirmed) return;
-      const res = await fetch(`/api/workout/${workoutId}/publish`, {
-        method: 'POST',
-        headers: authHeaders(true),
-        body: JSON.stringify({}),
-      });
+      const res = await fetch('/api/workout/new', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({}) });
       if (res.ok) {
-        if (tg.initDataUnsafe?.user) tg.showAlert('Workout published! ✅', () => tg.close());
-        else alert('Workout published! ✅');
-      } else {
-        if (tg.initDataUnsafe?.user) tg.showAlert('Failed to publish.');
-        else alert('Failed to publish.');
+        const data = await res.json();
+        workoutId = data.workout_id;
+        isPublished = false;
+        exercises = [];
+        document.getElementById('published-banner').style.display = 'none';
+        document.getElementById('btn-action').textContent = 'Publish';
+        document.getElementById('btn-new-workout').style.display = 'none';
+        renderExercises();
       }
     };
-    if (tg.initDataUnsafe?.user) tg.showConfirm('Publish this workout? Your trainee will be notified.', doPublish);
-    else doPublish(confirm('Publish this workout? Your trainee will be notified.'));
+    const msg = 'Start a new workout? The published one stays active until you publish the new one.';
+    if (tg.initDataUnsafe?.user) tg.showConfirm(msg, doCreate);
+    else doCreate(confirm(msg));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

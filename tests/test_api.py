@@ -142,6 +142,61 @@ async def test_trainer_cannot_use_trainee_endpoints(client):
 # History
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Edit published workout
+# ---------------------------------------------------------------------------
+
+async def test_draft_falls_back_to_published(client):
+    # Publish a workout
+    r = await client.get("/api/workout/draft", headers=TRAINER_H)
+    workout_id = r.json()["workout_id"]
+    await client.post(f"/api/workout/{workout_id}/exercises", json={"description": "Squat", "sets": [{"reps": 5}]}, headers=TRAINER_H)
+    await client.post(f"/api/workout/{workout_id}/publish", json={}, headers=TRAINER_H)
+
+    # Next call to /workout/draft should return the published workout
+    r = await client.get("/api/workout/draft", headers=TRAINER_H)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["workout_id"] == workout_id
+    assert data["is_published"] is True
+    assert len(data["exercises"]) == 1
+
+
+async def test_can_add_exercise_to_published_workout(client):
+    r = await client.get("/api/workout/draft", headers=TRAINER_H)
+    workout_id = r.json()["workout_id"]
+    await client.post(f"/api/workout/{workout_id}/exercises", json={"description": "Squat", "sets": [{"reps": 5}]}, headers=TRAINER_H)
+    await client.post(f"/api/workout/{workout_id}/publish", json={}, headers=TRAINER_H)
+
+    r = await client.post(f"/api/workout/{workout_id}/exercises", json={"description": "Lunge", "sets": [{"reps": 10}]}, headers=TRAINER_H)
+    assert r.status_code == 200
+    assert len(r.json()["exercises"]) == 2
+
+
+async def test_notify_update(client):
+    r = await client.get("/api/workout/draft", headers=TRAINER_H)
+    workout_id = r.json()["workout_id"]
+    await client.post(f"/api/workout/{workout_id}/exercises", json={"description": "Squat", "sets": [{"reps": 5}]}, headers=TRAINER_H)
+    await client.post(f"/api/workout/{workout_id}/publish", json={}, headers=TRAINER_H)
+
+    r = await client.post(f"/api/workout/{workout_id}/notify", json={}, headers=TRAINER_H)
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+
+async def test_new_draft_created_alongside_published(client):
+    r = await client.get("/api/workout/draft", headers=TRAINER_H)
+    workout_id = r.json()["workout_id"]
+    await client.post(f"/api/workout/{workout_id}/exercises", json={"description": "Squat", "sets": [{"reps": 5}]}, headers=TRAINER_H)
+    await client.post(f"/api/workout/{workout_id}/publish", json={}, headers=TRAINER_H)
+
+    r = await client.post("/api/workout/new", json={}, headers=TRAINER_H)
+    assert r.status_code == 200
+    new_id = r.json()["workout_id"]
+    assert new_id != workout_id
+    assert r.json()["is_published"] is False
+
+
 async def test_history_empty_before_completion(client):
     r = await client.get("/api/history", headers=TRAINEE_H)
     assert r.status_code == 200

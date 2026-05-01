@@ -85,13 +85,27 @@ async def get_or_create_draft(current_user: int = Depends(require_trainer)):
         )
         workout = result.scalar_one_or_none()
 
-        if not workout:
-            workout = Workout()
-            db.add(workout)
-            await db.commit()
-            return {"workout_id": workout.id, "exercises": []}
+        if workout:
+            return {"workout_id": workout.id, "is_published": False, "exercises": _serialize_exercises(workout.exercises)}
 
-        return {"workout_id": workout.id, "exercises": _serialize_exercises(workout.exercises)}
+        # No draft — fall back to latest published workout
+        result = await db.execute(
+            select(Workout)
+            .where(Workout.is_published == True)
+            .options(selectinload(Workout.exercises).selectinload(Exercise.planned_sets))
+            .order_by(Workout.created_at.desc())
+            .limit(1)
+        )
+        workout = result.scalar_one_or_none()
+
+        if workout:
+            return {"workout_id": workout.id, "is_published": True, "exercises": _serialize_exercises(workout.exercises)}
+
+        # Nothing exists — create a fresh draft
+        workout = Workout()
+        db.add(workout)
+        await db.commit()
+        return {"workout_id": workout.id, "is_published": False, "exercises": []}
 
 
 class SetIn(BaseModel):
@@ -165,6 +179,25 @@ async def publish_workout(workout_id: int, current_user: int = Depends(require_t
 
     await _notify_all("trainee", "New workout is ready! Open the app to start.")
     return {"status": "published"}
+
+
+@router.post("/workout/new")
+async def create_new_draft(current_user: int = Depends(require_trainer)):
+    async with async_session() as db:
+        workout = Workout()
+        db.add(workout)
+        await db.commit()
+    return {"workout_id": workout.id, "is_published": False, "exercises": []}
+
+
+@router.post("/workout/{workout_id}/notify")
+async def notify_workout_update(workout_id: int, current_user: int = Depends(require_trainer)):
+    async with async_session() as db:
+        workout = await db.get(Workout, workout_id)
+        if not workout or not workout.is_published:
+            raise HTTPException(404)
+    await _notify_all("trainee", "Your workout has been updated! Open the app to see changes.")
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
