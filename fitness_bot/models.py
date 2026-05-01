@@ -15,9 +15,11 @@ class Workout(Base):
     is_published: Mapped[bool] = mapped_column(default=False)
 
     exercises: Mapped[list["Exercise"]] = relationship(
-        back_populates="workout", order_by="Exercise.order"
+        back_populates="workout", order_by="Exercise.order", cascade="all, delete-orphan"
     )
-    sessions: Mapped[list["WorkoutSession"]] = relationship(back_populates="workout")
+    sessions: Mapped[list["WorkoutSession"]] = relationship(
+        back_populates="workout", cascade="all, delete-orphan"
+    )
 
 
 class Exercise(Base):
@@ -30,7 +32,7 @@ class Exercise(Base):
 
     workout: Mapped["Workout"] = relationship(back_populates="exercises")
     planned_sets: Mapped[list["PlannedSet"]] = relationship(
-        back_populates="exercise", order_by="PlannedSet.set_number"
+        back_populates="exercise", order_by="PlannedSet.set_number", cascade="all, delete-orphan"
     )
 
 
@@ -44,7 +46,9 @@ class PlannedSet(Base):
     weight: Mapped[float | None]
 
     exercise: Mapped["Exercise"] = relationship(back_populates="planned_sets")
-    executed_sets: Mapped[list["ExecutedSet"]] = relationship(back_populates="planned_set")
+    executed_sets: Mapped[list["ExecutedSet"]] = relationship(
+        back_populates="planned_set", cascade="all, delete-orphan"
+    )
 
 
 class WorkoutSession(Base):
@@ -57,8 +61,12 @@ class WorkoutSession(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     workout: Mapped["Workout"] = relationship(back_populates="sessions")
-    executed_sets: Mapped[list["ExecutedSet"]] = relationship(back_populates="session")
-    comments: Mapped[list["ExerciseComment"]] = relationship(back_populates="session")
+    executed_sets: Mapped[list["ExecutedSet"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    comments: Mapped[list["ExerciseComment"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
 
 
 class ExecutedSet(Base):
