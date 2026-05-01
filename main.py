@@ -7,10 +7,17 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import ErrorEvent
 
+from alembic import command
+from alembic.config import Config
+
 from fitness_bot.config import BOT_TOKEN
-from fitness_bot.db import init_db
 from fitness_bot.handlers import router
 from webapp.app import create_app
+
+
+def run_migrations() -> None:
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("aiosqlite").setLevel(logging.WARNING)
@@ -31,7 +38,7 @@ async def run_bot() -> None:
 
 
 async def main() -> None:
-    await init_db()
+    run_migrations()
 
     config = uvicorn.Config(create_app(), host="0.0.0.0", port=8000, log_level="warning", lifespan="off")
     server = uvicorn.Server(config)
