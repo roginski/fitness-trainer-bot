@@ -136,3 +136,73 @@ async def test_trainee_cannot_use_trainer_endpoints(client):
 async def test_trainer_cannot_use_trainee_endpoints(client):
     r = await client.get("/api/workout/current", headers=TRAINER_H)
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# History
+# ---------------------------------------------------------------------------
+
+async def test_history_empty_before_completion(client):
+    r = await client.get("/api/history", headers=TRAINEE_H)
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+async def test_history_after_completion(client):
+    # Publish workout
+    r = await client.get("/api/workout/draft", headers=TRAINER_H)
+    workout_id = r.json()["workout_id"]
+    r = await client.post(
+        f"/api/workout/{workout_id}/exercises",
+        json={"description": "Squat", "sets": [{"reps": 5}]},
+        headers=TRAINER_H,
+    )
+    ps_id = r.json()["exercises"][0]["planned_sets"][0]["id"]
+    await client.post(f"/api/workout/{workout_id}/publish", json={}, headers=TRAINER_H)
+
+    # Complete a session
+    r = await client.get("/api/workout/current", headers=TRAINEE_H)
+    session_id = r.json()["session_id"]
+    await client.post("/api/sets/log", json={"session_id": session_id, "planned_set_id": ps_id, "actual_reps": 5}, headers=TRAINEE_H)
+    await client.post(f"/api/sessions/{session_id}/complete", json={}, headers=TRAINEE_H)
+
+    # History should have one entry
+    r = await client.get("/api/history", headers=TRAINEE_H)
+    assert r.status_code == 200
+    history = r.json()
+    assert len(history) == 1
+    assert history[0]["session_id"] == session_id
+    assert history[0]["exercise_count"] == 1
+
+
+async def test_session_detail_with_comparison(client):
+    # Publish workout
+    r = await client.get("/api/workout/draft", headers=TRAINER_H)
+    workout_id = r.json()["workout_id"]
+    r = await client.post(
+        f"/api/workout/{workout_id}/exercises",
+        json={"description": "Deadlift", "sets": [{"reps": 5, "weight": 100}]},
+        headers=TRAINER_H,
+    )
+    ps_id = r.json()["exercises"][0]["planned_sets"][0]["id"]
+    await client.post(f"/api/workout/{workout_id}/publish", json={}, headers=TRAINER_H)
+
+    # First session
+    r = await client.get("/api/workout/current", headers=TRAINEE_H)
+    s1_id = r.json()["session_id"]
+    await client.post("/api/sets/log", json={"session_id": s1_id, "planned_set_id": ps_id, "actual_reps": 5, "actual_weight": 100}, headers=TRAINEE_H)
+    await client.post(f"/api/sessions/{s1_id}/complete", json={}, headers=TRAINEE_H)
+
+    # Second session
+    r = await client.get("/api/workout/current", headers=TRAINEE_H)
+    s2_id = r.json()["session_id"]
+    await client.post("/api/sets/log", json={"session_id": s2_id, "planned_set_id": ps_id, "actual_reps": 6, "actual_weight": 105}, headers=TRAINEE_H)
+    await client.post(f"/api/sessions/{s2_id}/complete", json={}, headers=TRAINEE_H)
+
+    # Detail of second session should include comparison to first
+    r = await client.get(f"/api/sessions/{s2_id}", headers=TRAINEE_H)
+    assert r.status_code == 200
+    ps = r.json()["workout"]["exercises"][0]["planned_sets"][0]
+    assert ps["executed"]["reps"] == 6
+    assert ps["previous"]["reps"] == 5  # compared to first session
+    assert ps["previous"]["weight"] == 100

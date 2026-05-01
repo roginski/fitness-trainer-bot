@@ -181,12 +181,15 @@ async def cmd_report(message: Message) -> None:
                     .selectinload(ExecutedSet.planned_set),
                 selectinload(WorkoutSession.comments),
             )
-            .limit(1)
+            .limit(3)
         )
-        session_obj = result.scalar_one_or_none()
+        sessions = result.scalars().all()
 
-    if not session_obj:
+    if not sessions:
         await message.answer("No completed workouts yet.")
         return
 
-    await message.answer(format_report(session_obj))
+    # sessions are newest-first; pair each with the one after it as "previous"
+    for i, session in enumerate(sessions):
+        prev = sessions[i + 1] if i + 1 < len(sessions) else None
+        await message.answer(format_report(session, prev))

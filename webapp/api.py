@@ -298,3 +298,97 @@ async def complete_session(session_id: int, current_user: int = Depends(require_
 
     await _notify_all("trainer", "Your trainee completed their workout! Use /report to see results.")
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# History endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/history")
+async def get_history(current_user: int = Depends(require_trainee)):
+    async with async_session() as db:
+        result = await db.execute(
+            select(WorkoutSession)
+            .where(WorkoutSession.trainee_telegram_id == current_user)
+            .where(WorkoutSession.completed_at.is_not(None))
+            .options(selectinload(WorkoutSession.workout).selectinload(Workout.exercises))
+            .order_by(WorkoutSession.completed_at.desc())
+        )
+        sessions = result.scalars().all()
+
+    return [
+        {
+            "session_id": s.id,
+            "workout_id": s.workout_id,
+            "completed_at": s.completed_at.isoformat(),
+            "exercise_count": len(s.workout.exercises),
+        }
+        for s in sessions
+    ]
+
+
+@router.get("/sessions/{session_id}")
+async def get_session_detail(session_id: int, current_user: int = Depends(require_trainee)):
+    async with async_session() as db:
+        session = await db.get(
+            WorkoutSession,
+            session_id,
+            options=[
+                selectinload(WorkoutSession.workout)
+                    .selectinload(Workout.exercises)
+                    .selectinload(Exercise.planned_sets),
+                selectinload(WorkoutSession.executed_sets),
+                selectinload(WorkoutSession.comments),
+            ],
+        )
+        if not session or session.trainee_telegram_id != current_user:
+            raise HTTPException(404)
+
+        # Find previous completed session for the same workout
+        prev_result = await db.execute(
+            select(WorkoutSession)
+            .where(WorkoutSession.workout_id == session.workout_id)
+            .where(WorkoutSession.trainee_telegram_id == current_user)
+            .where(WorkoutSession.completed_at < session.completed_at)
+            .where(WorkoutSession.completed_at.is_not(None))
+            .options(selectinload(WorkoutSession.executed_sets))
+            .order_by(WorkoutSession.completed_at.desc())
+            .limit(1)
+        )
+        prev_session = prev_result.scalar_one_or_none()
+
+    executed = {es.planned_set_id: es for es in session.executed_sets}
+    prev_executed = {es.planned_set_id: es for es in prev_session.executed_sets} if prev_session else {}
+    comments = {c.exercise_id: c.comment for c in session.comments}
+
+    return {
+        "session_id": session.id,
+        "completed_at": session.completed_at.isoformat(),
+        "workout": {
+            "exercises": [
+                {
+                    "id": ex.id,
+                    "description": ex.description,
+                    "comment": comments.get(ex.id),
+                    "planned_sets": [
+                        {
+                            "id": ps.id,
+                            "set_number": ps.set_number,
+                            "reps": ps.reps,
+                            "weight": ps.weight,
+                            "executed": _fmt_executed(executed.get(ps.id)),
+                            "previous": _fmt_executed(prev_executed.get(ps.id)),
+                        }
+                        for ps in ex.planned_sets
+                    ],
+                }
+                for ex in session.workout.exercises
+            ]
+        },
+    }
+
+
+def _fmt_executed(es: ExecutedSet | None) -> dict | None:
+    if es is None:
+        return None
+    return {"reps": es.actual_reps, "weight": es.actual_weight}
