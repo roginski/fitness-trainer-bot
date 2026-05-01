@@ -21,6 +21,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/trainer")
     async def trainer_app():

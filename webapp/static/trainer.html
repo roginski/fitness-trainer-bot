@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>Workout Builder</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="/static/sortable.min.js"></script>
   <style>
     :root {
       --bg:     var(--tg-theme-bg-color, #ffffff);
@@ -64,6 +65,10 @@
       flex-shrink: 0;
     }
     .btn-delete:hover { color: #ff3b30; }
+    .exercise-card { cursor: grab; user-select: none; -webkit-user-select: none; }
+    .exercise-card:active { cursor: grabbing; }
+    .sets-table, .sets-table * { user-select: none; -webkit-user-select: none; }
+    .sortable-ghost { opacity: 0.4; }
 
     /* ── Sets table ── */
     .sets-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -265,16 +270,39 @@
     const container = document.getElementById('main-content');
 
     if (formVisible) {
-      // Keep form visible, insert exercises before it
       const existing = document.getElementById('exercise-list');
       if (existing) existing.remove();
       const list = buildExerciseList();
       container.insertBefore(list, container.firstChild);
+      initSortable();
       return;
     }
 
     container.innerHTML = '';
     container.appendChild(buildExerciseList());
+    initSortable();
+  }
+
+  function initSortable() {
+    const list = document.getElementById('exercise-list');
+    if (!list || exercises.length < 2) return;
+    Sortable.create(list, {
+      animation: 150,
+      forceFallback: true,
+      filter: '.btn-delete',
+      onEnd: async ({ oldIndex, newIndex }) => {
+        if (oldIndex === newIndex) return;
+        const moved = exercises.splice(oldIndex, 1)[0];
+        exercises.splice(newIndex, 0, moved);
+        const ids = exercises.map(e => e.id);
+        await fetch(`/api/workout/${workoutId}/exercises/reorder`, {
+          method: 'POST',
+          headers: authHeaders(true),
+          body: JSON.stringify({ exercise_ids: ids }),
+        });
+        renderExercises();
+      },
+    });
   }
 
   function buildExerciseList() {
@@ -306,6 +334,7 @@
               </tr>`).join('')}
            </table>`;
 
+      card.dataset.id = ex.id;
       card.innerHTML = `
         <div class="card-header">
           <div>
@@ -315,6 +344,7 @@
           <button class="btn-delete" onclick="deleteExercise(${ex.id})">×</button>
         </div>
         ${setsHtml}`;
+      card.addEventListener('selectstart', e => e.preventDefault());
       wrap.appendChild(card);
     });
 

@@ -149,6 +149,21 @@ async def add_exercise(workout_id: int, body: ExerciseIn, current_user: int = De
         return {"exercises": _serialize_exercises(exercises)}
 
 
+class ReorderIn(BaseModel):
+    exercise_ids: list[int]
+
+
+@router.post("/workout/{workout_id}/exercises/reorder")
+async def reorder_exercises(workout_id: int, body: ReorderIn, current_user: int = Depends(require_trainer)):
+    async with async_session() as db:
+        for new_order, ex_id in enumerate(body.exercise_ids, 1):
+            exercise = await db.get(Exercise, ex_id)
+            if exercise and exercise.workout_id == workout_id:
+                exercise.order = new_order
+        await db.commit()
+    return {"status": "ok"}
+
+
 @router.delete("/exercises/{exercise_id}")
 async def remove_exercise(exercise_id: int, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
