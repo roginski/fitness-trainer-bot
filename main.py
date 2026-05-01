@@ -59,7 +59,6 @@ async def run_bot() -> None:
 
 
 async def main() -> None:
-    run_migrations()
     await seed_dev_users()
 
     config = uvicorn.Config(create_app(), host="0.0.0.0", port=8000, log_level="warning", lifespan="off")
@@ -77,4 +76,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    run_migrations()
     asyncio.run(main())
