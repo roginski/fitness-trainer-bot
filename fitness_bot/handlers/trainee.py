@@ -1,14 +1,14 @@
 from datetime import datetime, timezone
 
-from aiogram import Bot, F, Router
+from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
-from ..config import TRAINEE_ID, TRAINER_ID
 from ..db import async_session
+from ..filters import RoleFilter
 from ..keyboards import (
     ExerciseCallback,
     WorkoutCompleteCallback,
@@ -20,28 +20,29 @@ from ..models import (
     ExecutedSet,
     ExerciseComment,
     PlannedSet,
+    User,
     Workout,
     WorkoutSession,
 )
 from ..states import TraineeStates
 
 router = Router()
-router.message.filter(F.from_user.id == TRAINEE_ID)
-router.callback_query.filter(F.from_user.id == TRAINEE_ID)
+router.message.filter(RoleFilter("trainee"))
+router.callback_query.filter(RoleFilter("trainee"))
 
 
-async def _get_or_create_session(workout_id: int) -> WorkoutSession:
+async def _get_or_create_session(workout_id: int, trainee_id: int) -> WorkoutSession:
     async with async_session() as db:
         result = await db.execute(
             select(WorkoutSession)
             .where(WorkoutSession.workout_id == workout_id)
-            .where(WorkoutSession.trainee_telegram_id == TRAINEE_ID)
+            .where(WorkoutSession.trainee_telegram_id == trainee_id)
             .where(WorkoutSession.completed_at.is_(None))
         )
         session_obj = result.scalar_one_or_none()
         if not session_obj:
             session_obj = WorkoutSession(
-                workout_id=workout_id, trainee_telegram_id=TRAINEE_ID
+                workout_id=workout_id, trainee_telegram_id=trainee_id
             )
             db.add(session_obj)
             await db.commit()
@@ -49,7 +50,7 @@ async def _get_or_create_session(workout_id: int) -> WorkoutSession:
         return session_obj
 
 
-async def _send_workout_view(chat_id: int, bot: Bot) -> None:
+async def _send_workout_view(chat_id: int, trainee_id: int, bot: Bot) -> None:
     async with async_session() as db:
         result = await db.execute(
             select(Workout)
@@ -66,7 +67,7 @@ async def _send_workout_view(chat_id: int, bot: Bot) -> None:
         await bot.send_message(chat_id, "No workout available yet.")
         return
 
-    session_obj = await _get_or_create_session(workout.id)
+    session_obj = await _get_or_create_session(workout.id, trainee_id)
 
     async with async_session() as db:
         exec_result = await db.execute(
@@ -99,13 +100,17 @@ async def _send_workout_view(chat_id: int, bot: Bot) -> None:
 
 @router.message(Command("workout"))
 async def cmd_workout(message: Message, bot: Bot) -> None:
-    await _send_workout_view(message.chat.id, bot)
+    await _send_workout_view(message.chat.id, message.from_user.id, bot)
 
 
-@router.callback_query(ExerciseCallback.filter(F.action == "log"))
+@router.callback_query(ExerciseCallback.filter())
 async def cb_log_exercise(
     callback: CallbackQuery, callback_data: ExerciseCallback, state: FSMContext
 ) -> None:
+    if callback_data.action != "log":
+        await callback.answer()
+        return
+
     exercise_id = callback_data.exercise_id
     session_id = callback_data.session_id
 
@@ -117,7 +122,6 @@ async def cb_log_exercise(
             await callback.answer("Exercise not found or has no sets.")
             return
 
-        # Clear any previously logged sets for this exercise in this session
         planned_set_ids = [ps.id for ps in exercise.planned_sets]
         await db.execute(
             delete(ExecutedSet).where(
@@ -248,16 +252,19 @@ async def handle_comment(message: Message, state: FSMContext, bot: Bot) -> None:
 
     await state.clear()
     await message.answer("Comment saved!")
-    await _send_workout_view(message.chat.id, bot)
+    await _send_workout_view(message.chat.id, message.from_user.id, bot)
 
 
-@router.callback_query(ExerciseCallback.filter(F.action == "skip_comment"))
+@router.callback_query(ExerciseCallback.filter())
 async def cb_skip_comment(
     callback: CallbackQuery, callback_data: ExerciseCallback, state: FSMContext, bot: Bot
 ) -> None:
+    if callback_data.action != "skip_comment":
+        await callback.answer()
+        return
     await state.clear()
     await callback.message.answer("No comment added.")
-    await _send_workout_view(callback.message.chat.id, bot)
+    await _send_workout_view(callback.message.chat.id, callback.from_user.id, bot)
     await callback.answer()
 
 
@@ -273,6 +280,9 @@ async def cb_complete_workout(
         session_obj.completed_at = datetime.now(timezone.utc)
         await db.commit()
 
+        trainers = (await db.execute(select(User).where(User.role == "trainer"))).scalars().all()
+
     await callback.message.answer("Workout completed! Great job!")
-    await bot.send_message(TRAINER_ID, "Your trainee completed their workout! Use /report to see results.")
+    for trainer in trainers:
+        await bot.send_message(trainer.telegram_id, "Your trainee completed their workout! Use /report to see results.")
     await callback.answer()

@@ -1,20 +1,20 @@
-from aiogram import Bot, F, Router
+from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from ..config import TRAINER_ID, TRAINEE_ID
 from ..db import async_session
+from ..filters import RoleFilter
 from ..keyboards import WorkoutCallback, after_sets_kb
-from ..models import Exercise, ExecutedSet, PlannedSet, Workout, WorkoutSession
+from ..models import Exercise, ExecutedSet, PlannedSet, User, Workout, WorkoutSession
 from ..reports import format_report
 from ..states import TrainerStates
 
 router = Router()
-router.message.filter(F.from_user.id == TRAINER_ID)
-router.callback_query.filter(F.from_user.id == TRAINER_ID)
+router.message.filter(RoleFilter("trainer"))
+router.callback_query.filter(RoleFilter("trainer"))
 
 
 @router.message(Command("new_workout"))
@@ -119,21 +119,26 @@ async def handle_set_weight(message: Message, state: FSMContext) -> None:
         )
 
 
-@router.callback_query(WorkoutCallback.filter(F.action == "add_exercise"))
+@router.callback_query(WorkoutCallback.filter())
 async def cb_add_exercise(
     callback: CallbackQuery, callback_data: WorkoutCallback, state: FSMContext
 ) -> None:
-    data = await state.get_data()
-    order = data.get("exercise_order", 1)
-    await state.set_state(TrainerStates.adding_exercise_description)
-    await callback.message.answer(f"Exercise {order} — enter description:")
-    await callback.answer()
+    if callback_data.action == "add_exercise":
+        data = await state.get_data()
+        order = data.get("exercise_order", 1)
+        await state.set_state(TrainerStates.adding_exercise_description)
+        await callback.message.answer(f"Exercise {order} — enter description:")
+        await callback.answer()
 
 
-@router.callback_query(WorkoutCallback.filter(F.action == "publish"))
+@router.callback_query(WorkoutCallback.filter())
 async def cb_publish_workout(
     callback: CallbackQuery, callback_data: WorkoutCallback, state: FSMContext, bot: Bot
 ) -> None:
+    if callback_data.action != "publish":
+        await callback.answer()
+        return
+
     async with async_session() as db:
         workout = await db.get(
             Workout,
@@ -152,9 +157,12 @@ async def cb_publish_workout(
         workout.is_published = True
         await db.commit()
 
+        trainees = (await db.execute(select(User).where(User.role == "trainee"))).scalars().all()
+
     await state.clear()
     await callback.message.answer("Workout published!")
-    await bot.send_message(TRAINEE_ID, "New workout is ready! Use /workout to see it.")
+    for trainee in trainees:
+        await bot.send_message(trainee.telegram_id, "New workout is ready! Use /workout to see it.")
     await callback.answer()
 
 
@@ -163,7 +171,6 @@ async def cmd_report(message: Message) -> None:
     async with async_session() as db:
         result = await db.execute(
             select(WorkoutSession)
-            .where(WorkoutSession.trainee_telegram_id == TRAINEE_ID)
             .where(WorkoutSession.completed_at.is_not(None))
             .order_by(WorkoutSession.completed_at.desc())
             .options(

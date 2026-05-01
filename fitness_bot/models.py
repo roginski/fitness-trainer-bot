@@ -7,6 +7,15 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    telegram_id: Mapped[int] = mapped_column(primary_key=True)
+    role: Mapped[str]  # "trainer" or "trainee"
+    name: Mapped[str]
+    registered_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Workout(Base):
     __tablename__ = "workouts"
 

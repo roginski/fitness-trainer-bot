@@ -4,7 +4,7 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from unittest.mock import AsyncMock
 
-from fitness_bot.models import Base
+from fitness_bot.models import Base, User
 from webapp.app import create_app
 import webapp.api as api_module
 import webapp.auth as auth_module
@@ -24,9 +24,12 @@ async def app(monkeypatch):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    async with session_factory() as db:
+        db.add(User(telegram_id=TRAINER_ID, role="trainer", name="Test Trainer"))
+        db.add(User(telegram_id=TRAINEE_ID, role="trainee", name="Test Trainee"))
+        await db.commit()
+
     monkeypatch.setattr(api_module, "async_session", session_factory)
-    monkeypatch.setattr(api_module, "TRAINER_ID", TRAINER_ID)
-    monkeypatch.setattr(api_module, "TRAINEE_ID", TRAINEE_ID)
     monkeypatch.setattr(api_module, "_send_telegram", AsyncMock())
     monkeypatch.setattr(auth_module, "DEBUG", True)
 

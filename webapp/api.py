@@ -6,13 +6,14 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
-from fitness_bot.config import BOT_TOKEN, TRAINER_ID, TRAINEE_ID
+from fitness_bot.config import BOT_TOKEN
 from fitness_bot.db import async_session
 from fitness_bot.models import (
     Exercise,
     ExecutedSet,
     ExerciseComment,
     PlannedSet,
+    User,
     Workout,
     WorkoutSession,
 )
@@ -27,6 +28,14 @@ async def _send_telegram(chat_id: int, text: str) -> None:
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={"chat_id": chat_id, "text": text},
         )
+
+
+async def _notify_all(role: str, text: str) -> None:
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.role == role))
+        users = result.scalars().all()
+    for user in users:
+        await _send_telegram(user.telegram_id, text)
 
 
 def _serialize_exercises(exercises: list[Exercise]) -> list[dict]:
@@ -44,15 +53,28 @@ def _serialize_exercises(exercises: list[Exercise]) -> list[dict]:
     ]
 
 
+async def require_trainer(current_user: int = Depends(get_current_user)) -> int:
+    async with async_session() as db:
+        user = await db.get(User, current_user)
+    if not user or user.role != "trainer":
+        raise HTTPException(403)
+    return current_user
+
+
+async def require_trainee(current_user: int = Depends(get_current_user)) -> int:
+    async with async_session() as db:
+        user = await db.get(User, current_user)
+    if not user or user.role != "trainee":
+        raise HTTPException(403)
+    return current_user
+
+
 # ---------------------------------------------------------------------------
 # Trainer endpoints
 # ---------------------------------------------------------------------------
 
 @router.get("/workout/draft")
-async def get_or_create_draft(current_user: int = Depends(get_current_user)):
-    if current_user != TRAINER_ID:
-        raise HTTPException(403)
-
+async def get_or_create_draft(current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         result = await db.execute(
             select(Workout)
@@ -83,10 +105,7 @@ class ExerciseIn(BaseModel):
 
 
 @router.post("/workout/{workout_id}/exercises")
-async def add_exercise(workout_id: int, body: ExerciseIn, current_user: int = Depends(get_current_user)):
-    if current_user != TRAINER_ID:
-        raise HTTPException(403)
-
+async def add_exercise(workout_id: int, body: ExerciseIn, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         result = await db.execute(
             select(Exercise)
@@ -117,10 +136,7 @@ async def add_exercise(workout_id: int, body: ExerciseIn, current_user: int = De
 
 
 @router.delete("/exercises/{exercise_id}")
-async def remove_exercise(exercise_id: int, current_user: int = Depends(get_current_user)):
-    if current_user != TRAINER_ID:
-        raise HTTPException(403)
-
+async def remove_exercise(exercise_id: int, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         exercise = await db.get(Exercise, exercise_id)
         if not exercise:
@@ -139,10 +155,7 @@ async def remove_exercise(exercise_id: int, current_user: int = Depends(get_curr
 
 
 @router.post("/workout/{workout_id}/publish")
-async def publish_workout(workout_id: int, current_user: int = Depends(get_current_user)):
-    if current_user != TRAINER_ID:
-        raise HTTPException(403)
-
+async def publish_workout(workout_id: int, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         workout = await db.get(Workout, workout_id)
         if not workout:
@@ -150,7 +163,7 @@ async def publish_workout(workout_id: int, current_user: int = Depends(get_curre
         workout.is_published = True
         await db.commit()
 
-    await _send_telegram(TRAINEE_ID, "New workout is ready! Open the app to start.")
+    await _notify_all("trainee", "New workout is ready! Open the app to start.")
     return {"status": "published"}
 
 
@@ -159,10 +172,7 @@ async def publish_workout(workout_id: int, current_user: int = Depends(get_curre
 # ---------------------------------------------------------------------------
 
 @router.get("/workout/current")
-async def get_current_workout(current_user: int = Depends(get_current_user)):
-    if current_user != TRAINEE_ID:
-        raise HTTPException(403)
-
+async def get_current_workout(current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         result = await db.execute(
             select(Workout)
@@ -235,10 +245,7 @@ class LogSetIn(BaseModel):
 
 
 @router.post("/sets/log")
-async def log_set(body: LogSetIn, current_user: int = Depends(get_current_user)):
-    if current_user != TRAINEE_ID:
-        raise HTTPException(403)
-
+async def log_set(body: LogSetIn, current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         await db.execute(
             delete(ExecutedSet).where(
@@ -263,10 +270,7 @@ class CommentIn(BaseModel):
 
 
 @router.post("/comments")
-async def save_comment(body: CommentIn, current_user: int = Depends(get_current_user)):
-    if current_user != TRAINEE_ID:
-        raise HTTPException(403)
-
+async def save_comment(body: CommentIn, current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         await db.execute(
             delete(ExerciseComment).where(
@@ -284,10 +288,7 @@ async def save_comment(body: CommentIn, current_user: int = Depends(get_current_
 
 
 @router.post("/sessions/{session_id}/complete")
-async def complete_session(session_id: int, current_user: int = Depends(get_current_user)):
-    if current_user != TRAINEE_ID:
-        raise HTTPException(403)
-
+async def complete_session(session_id: int, current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         session = await db.get(WorkoutSession, session_id)
         if not session:
@@ -295,5 +296,5 @@ async def complete_session(session_id: int, current_user: int = Depends(get_curr
         session.completed_at = datetime.now(timezone.utc)
         await db.commit()
 
-    await _send_telegram(TRAINER_ID, "Your trainee completed their workout! Use /report to see results.")
+    await _notify_all("trainer", "Your trainee completed their workout! Use /report to see results.")
     return {"status": "ok"}
