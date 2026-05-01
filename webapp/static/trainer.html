@@ -65,9 +65,24 @@
       flex-shrink: 0;
     }
     .btn-delete:hover { color: #ff3b30; }
-    .exercise-card { cursor: grab; user-select: none; -webkit-user-select: none; }
-    .exercise-card:active { cursor: grabbing; }
-    .sets-table, .sets-table * { user-select: none; -webkit-user-select: none; }
+    .drag-handle {
+      width: 44px;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--hint);
+      font-size: 22px;
+      cursor: grab;
+      flex-shrink: 0;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      margin: -14px 6px -14px -14px;
+      padding: 14px 8px;
+      border-radius: var(--radius) 0 0 var(--radius);
+    }
+    .drag-handle:active { cursor: grabbing; }
     .sortable-ghost { opacity: 0.4; }
 
     /* ── Sets table ── */
@@ -89,6 +104,20 @@
       min-width: 40px;
       text-align: center;
     }
+    .pill-input {
+      background: var(--bg);
+      border: none;
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 13px;
+      width: 64px;
+      text-align: center;
+      color: var(--text);
+      font-family: inherit;
+    }
+    .pill-input:focus { outline: 1px solid var(--btn); }
+    .pill-input::-webkit-outer-spin-button,
+    .pill-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 
     /* ── Empty state ── */
     .empty {
@@ -287,8 +316,8 @@
     const list = document.getElementById('exercise-list');
     if (!list || exercises.length < 2) return;
     Sortable.create(list, {
+      handle: '.drag-handle',
       animation: 150,
-      forceFallback: true,
       filter: '.btn-delete',
       onEnd: async ({ oldIndex, newIndex }) => {
         if (oldIndex === newIndex) return;
@@ -325,18 +354,23 @@
       const setsHtml = ex.planned_sets.length === 0
         ? '<span style="color:var(--hint);font-size:13px">No sets</span>'
         : `<table class="sets-table">
-            <tr><th>Set</th><th>Reps</th><th>Weight</th></tr>
+            <tr><th>Set</th><th>Reps</th><th>Weight (kg)</th></tr>
             ${ex.planned_sets.map(s => `
               <tr>
                 <td>${s.set_number}</td>
-                <td><span class="pill">${s.reps ?? '—'}</span></td>
-                <td><span class="pill">${s.weight != null ? s.weight + ' kg' : '—'}</span></td>
+                <td><input class="pill-input" type="number" min="0" step="1"
+                  value="${s.reps ?? ''}" placeholder="—"
+                  onchange="saveSet(${s.id}, 'reps', this.value)"></td>
+                <td><input class="pill-input" type="number" min="0" step="0.5"
+                  value="${s.weight ?? ''}" placeholder="—"
+                  onchange="saveSet(${s.id}, 'weight', this.value)"></td>
               </tr>`).join('')}
            </table>`;
 
       card.dataset.id = ex.id;
       card.innerHTML = `
         <div class="card-header">
+          <div class="drag-handle">⠿</div>
           <div>
             <div class="exercise-num">Exercise ${i + 1}</div>
             <div class="exercise-name">${esc(ex.description)}</div>
@@ -344,7 +378,6 @@
           <button class="btn-delete" onclick="deleteExercise(${ex.id})">×</button>
         </div>
         ${setsHtml}`;
-      card.addEventListener('selectstart', e => e.preventDefault());
       wrap.appendChild(card);
     });
 
@@ -442,6 +475,24 @@
       renderExercises();
     } else {
       tg.showAlert('Failed to save exercise.');
+    }
+  }
+
+  // ── Edit set ─────────────────────────────────────────────────────────────
+
+  async function saveSet(psId, field, rawValue) {
+    const value = rawValue === '' ? null : field === 'reps' ? parseInt(rawValue) : parseFloat(rawValue);
+    const body = {};
+    body[field] = value;
+    await fetch(`/api/sets/${psId}`, {
+      method: 'PATCH',
+      headers: authHeaders(true),
+      body: JSON.stringify(body),
+    });
+    for (const ex of exercises) {
+      for (const ps of ex.planned_sets) {
+        if (ps.id === psId) ps[field] = value;
+      }
     }
   }
 

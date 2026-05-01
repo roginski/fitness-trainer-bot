@@ -149,6 +149,25 @@ async def add_exercise(workout_id: int, body: ExerciseIn, current_user: int = De
         return {"exercises": _serialize_exercises(exercises)}
 
 
+class SetUpdateIn(BaseModel):
+    reps: int | None = None
+    weight: float | None = None
+
+
+@router.patch("/sets/{planned_set_id}")
+async def update_planned_set(planned_set_id: int, body: SetUpdateIn, current_user: int = Depends(require_trainer)):
+    async with async_session() as db:
+        ps = await db.get(PlannedSet, planned_set_id)
+        if not ps:
+            raise HTTPException(404)
+        if "reps" in body.model_fields_set:
+            ps.reps = body.reps
+        if "weight" in body.model_fields_set:
+            ps.weight = body.weight
+        await db.commit()
+    return {"status": "ok"}
+
+
 class ReorderIn(BaseModel):
     exercise_ids: list[int]
 

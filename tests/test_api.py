@@ -61,6 +61,28 @@ async def test_trainer_reorders_exercises(client):
     assert [e["description"] for e in r.json()["exercises"]] == ["C", "A", "B"]
 
 
+async def test_trainer_edits_planned_set(client):
+    r = await client.get("/api/workout/draft", headers=TRAINER_H)
+    workout_id = r.json()["workout_id"]
+    r = await client.post(
+        f"/api/workout/{workout_id}/exercises",
+        json={"description": "Squat", "sets": [{"reps": 5, "weight": 100.0}]},
+        headers=TRAINER_H,
+    )
+    ps_id = r.json()["exercises"][0]["planned_sets"][0]["id"]
+
+    r = await client.patch(f"/api/sets/{ps_id}", json={"reps": 8}, headers=TRAINER_H)
+    assert r.status_code == 200
+
+    r = await client.patch(f"/api/sets/{ps_id}", json={"weight": 110.0}, headers=TRAINER_H)
+    assert r.status_code == 200
+
+    r = await client.get("/api/workout/draft", headers=TRAINER_H)
+    ps = r.json()["exercises"][0]["planned_sets"][0]
+    assert ps["reps"] == 8
+    assert ps["weight"] == 110.0
+
+
 async def test_trainer_deletes_exercise(client):
     r = await client.get("/api/workout/draft", headers=TRAINER_H)
     workout_id = r.json()["workout_id"]
