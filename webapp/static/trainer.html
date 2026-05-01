@@ -214,21 +214,31 @@
   tg.expand();
   tg.ready();
 
-  // Get user_id from Telegram or URL param (for browser testing)
-  const userId = tg.initDataUnsafe?.user?.id
-    || new URLSearchParams(location.search).get('user_id');
-
   let workoutId = null;
   let exercises = [];
   let setCounter = 0;
   let formVisible = false;
 
+  // ── Auth headers ──────────────────────────────────────────────────────────
+
+  function authHeaders(json = false) {
+    const h = { 'ngrok-skip-browser-warning': '1' };
+    if (tg.initData) {
+      h['X-Telegram-Init-Data'] = tg.initData;
+    } else {
+      const debugId = new URLSearchParams(location.search).get('user_id');
+      if (debugId) h['X-Debug-User-Id'] = debugId;
+    }
+    if (json) h['Content-Type'] = 'application/json';
+    return h;
+  }
+
   // ── Init ─────────────────────────────────────────────────────────────────
 
-  const fetchOpts = { headers: { 'ngrok-skip-browser-warning': '1' } };
+  const fetchOpts = { headers: authHeaders() };
 
   async function init() {
-    const res = await fetch(`/api/workout/draft?user_id=${userId}`, fetchOpts);
+    const res = await fetch(`/api/workout/draft`, fetchOpts);
     if (!res.ok) { showError('Failed to load workout'); return; }
     const data = await res.json();
     workoutId = data.workout_id;
@@ -381,8 +391,8 @@
 
     const res = await fetch(`/api/workout/${workoutId}/exercises`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
-      body: JSON.stringify({ description: name, sets, user_id: userId }),
+      headers: authHeaders(true),
+      body: JSON.stringify({ description: name, sets }),
     });
 
     if (res.ok) {
@@ -400,7 +410,7 @@
   async function deleteExercise(id) {
     const doDelete = async (confirmed) => {
       if (!confirmed) return;
-      const res = await fetch(`/api/exercises/${id}?user_id=${userId}`, { method: 'DELETE', headers: { 'ngrok-skip-browser-warning': '1' } });
+      const res = await fetch(`/api/exercises/${id}`, { method: 'DELETE', headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         exercises = data.exercises;
@@ -422,8 +432,8 @@
       if (!confirmed) return;
       const res = await fetch(`/api/workout/${workoutId}/publish`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
-        body: JSON.stringify({ user_id: userId }),
+        headers: authHeaders(true),
+        body: JSON.stringify({}),
       });
       if (res.ok) {
         if (tg.initDataUnsafe?.user) tg.showAlert('Workout published! ✅', () => tg.close());

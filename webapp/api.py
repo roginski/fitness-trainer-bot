@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
@@ -16,6 +16,7 @@ from fitness_bot.models import (
     Workout,
     WorkoutSession,
 )
+from webapp.auth import get_current_user
 
 router = APIRouter(prefix="/api")
 
@@ -48,8 +49,8 @@ def _serialize_exercises(exercises: list[Exercise]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 @router.get("/workout/draft")
-async def get_or_create_draft(user_id: int):
-    if user_id != TRAINER_ID:
+async def get_or_create_draft(current_user: int = Depends(get_current_user)):
+    if current_user != TRAINER_ID:
         raise HTTPException(403)
 
     async with async_session() as db:
@@ -79,12 +80,11 @@ class SetIn(BaseModel):
 class ExerciseIn(BaseModel):
     description: str
     sets: list[SetIn]
-    user_id: int
 
 
 @router.post("/workout/{workout_id}/exercises")
-async def add_exercise(workout_id: int, body: ExerciseIn):
-    if body.user_id != TRAINER_ID:
+async def add_exercise(workout_id: int, body: ExerciseIn, current_user: int = Depends(get_current_user)):
+    if current_user != TRAINER_ID:
         raise HTTPException(403)
 
     async with async_session() as db:
@@ -117,8 +117,8 @@ async def add_exercise(workout_id: int, body: ExerciseIn):
 
 
 @router.delete("/exercises/{exercise_id}")
-async def remove_exercise(exercise_id: int, user_id: int):
-    if user_id != TRAINER_ID:
+async def remove_exercise(exercise_id: int, current_user: int = Depends(get_current_user)):
+    if current_user != TRAINER_ID:
         raise HTTPException(403)
 
     async with async_session() as db:
@@ -138,13 +138,9 @@ async def remove_exercise(exercise_id: int, user_id: int):
         return {"exercises": _serialize_exercises(result.scalars().all())}
 
 
-class PublishIn(BaseModel):
-    user_id: int
-
-
 @router.post("/workout/{workout_id}/publish")
-async def publish_workout(workout_id: int, body: PublishIn):
-    if body.user_id != TRAINER_ID:
+async def publish_workout(workout_id: int, current_user: int = Depends(get_current_user)):
+    if current_user != TRAINER_ID:
         raise HTTPException(403)
 
     async with async_session() as db:
@@ -163,8 +159,8 @@ async def publish_workout(workout_id: int, body: PublishIn):
 # ---------------------------------------------------------------------------
 
 @router.get("/workout/current")
-async def get_current_workout(user_id: int):
-    if user_id != TRAINEE_ID:
+async def get_current_workout(current_user: int = Depends(get_current_user)):
+    if current_user != TRAINEE_ID:
         raise HTTPException(403)
 
     async with async_session() as db:
@@ -182,12 +178,12 @@ async def get_current_workout(user_id: int):
         sess_result = await db.execute(
             select(WorkoutSession)
             .where(WorkoutSession.workout_id == workout.id)
-            .where(WorkoutSession.trainee_telegram_id == user_id)
+            .where(WorkoutSession.trainee_telegram_id == current_user)
             .where(WorkoutSession.completed_at.is_(None))
         )
         session = sess_result.scalar_one_or_none()
         if not session:
-            session = WorkoutSession(workout_id=workout.id, trainee_telegram_id=user_id)
+            session = WorkoutSession(workout_id=workout.id, trainee_telegram_id=current_user)
             db.add(session)
             await db.commit()
             await db.refresh(session)
@@ -236,12 +232,11 @@ class LogSetIn(BaseModel):
     planned_set_id: int
     actual_reps: int | None = None
     actual_weight: float | None = None
-    user_id: int
 
 
 @router.post("/sets/log")
-async def log_set(body: LogSetIn):
-    if body.user_id != TRAINEE_ID:
+async def log_set(body: LogSetIn, current_user: int = Depends(get_current_user)):
+    if current_user != TRAINEE_ID:
         raise HTTPException(403)
 
     async with async_session() as db:
@@ -265,12 +260,11 @@ class CommentIn(BaseModel):
     session_id: int
     exercise_id: int
     comment: str
-    user_id: int
 
 
 @router.post("/comments")
-async def save_comment(body: CommentIn):
-    if body.user_id != TRAINEE_ID:
+async def save_comment(body: CommentIn, current_user: int = Depends(get_current_user)):
+    if current_user != TRAINEE_ID:
         raise HTTPException(403)
 
     async with async_session() as db:
@@ -289,13 +283,9 @@ async def save_comment(body: CommentIn):
     return {"status": "ok"}
 
 
-class CompleteIn(BaseModel):
-    user_id: int
-
-
 @router.post("/sessions/{session_id}/complete")
-async def complete_session(session_id: int, body: CompleteIn):
-    if body.user_id != TRAINEE_ID:
+async def complete_session(session_id: int, current_user: int = Depends(get_current_user)):
+    if current_user != TRAINEE_ID:
         raise HTTPException(403)
 
     async with async_session() as db:

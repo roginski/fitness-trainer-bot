@@ -178,11 +178,20 @@
   tg.expand();
   tg.ready();
 
-  const userId = tg.initDataUnsafe?.user?.id
-    || new URLSearchParams(location.search).get('user_id');
+  function authHeaders(json = false) {
+    const h = { 'ngrok-skip-browser-warning': '1' };
+    if (tg.initData) {
+      h['X-Telegram-Init-Data'] = tg.initData;
+    } else {
+      const debugId = new URLSearchParams(location.search).get('user_id');
+      if (debugId) h['X-Debug-User-Id'] = debugId;
+    }
+    if (json) h['Content-Type'] = 'application/json';
+    return h;
+  }
 
-  const H = { 'ngrok-skip-browser-warning': '1' };
-  const HJ = { ...H, 'Content-Type': 'application/json' };
+  const H = authHeaders();
+  const HJ = authHeaders(true);
 
   let sessionId = null;
   let exercises = [];
@@ -190,7 +199,7 @@
   // ── Init ──────────────────────────────────────────────────────────────────
 
   async function init() {
-    const res = await fetch(`/api/workout/current?user_id=${userId}`, { headers: H });
+    const res = await fetch(`/api/workout/current`, { headers: H });
     if (!res.ok) { showError('Failed to load workout.'); return; }
     const data = await res.json();
 
@@ -320,7 +329,6 @@
           planned_set_id: ps.id,
           actual_reps:   repsVal   ? parseInt(repsVal)    : null,
           actual_weight: weightVal ? parseFloat(weightVal) : null,
-          user_id: userId,
         }),
       });
       ps.executed = {
@@ -335,7 +343,7 @@
       await fetch('/api/comments', {
         method: 'POST',
         headers: HJ,
-        body: JSON.stringify({ session_id: sessionId, exercise_id: exId, comment, user_id: userId }),
+        body: JSON.stringify({ session_id: sessionId, exercise_id: exId, comment }),
       });
       ex.comment = comment;
     }
@@ -366,7 +374,7 @@
       const res = await fetch(`/api/sessions/${sessionId}/complete`, {
         method: 'POST',
         headers: HJ,
-        body: JSON.stringify({ user_id: userId }),
+        body: JSON.stringify({}),
       });
       if (res.ok) {
         document.getElementById('main-content').innerHTML =
