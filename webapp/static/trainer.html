@@ -231,8 +231,11 @@
     if (tg.initData) {
       h['X-Telegram-Init-Data'] = tg.initData;
     } else {
-      const debugId = new URLSearchParams(location.search).get('user_id');
-      if (debugId) h['X-Debug-User-Id'] = debugId;
+      const params = new URLSearchParams(location.search);
+      const token = params.get('token');
+      const debugId = params.get('user_id') || tg.initDataUnsafe?.user?.id;
+      if (token) h['X-Auth-Token'] = token;
+      else if (debugId) h['X-Debug-User-Id'] = String(debugId);
     }
     if (json) h['Content-Type'] = 'application/json';
     return h;
@@ -240,10 +243,8 @@
 
   // ── Init ─────────────────────────────────────────────────────────────────
 
-  const fetchOpts = { headers: authHeaders() };
-
   async function init() {
-    const res = await fetch(`/api/workout/draft`, fetchOpts);
+    const res = await fetch(`/api/workout/draft`, { headers: authHeaders() });
     if (!res.ok) { showError('Failed to load workout'); return; }
     const data = await res.json();
     workoutId = data.workout_id;
