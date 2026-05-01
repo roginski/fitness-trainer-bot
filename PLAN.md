@@ -1,47 +1,27 @@
 # Fitness Trainer Bot — Project Plan
 
-## What's Done
+## Done
 
-- [x] Trainer Mini App: create workout, add exercises with sets, delete exercises, publish
+- [x] Trainer Mini App: create workout, add/delete/reorder exercises, inline set editing, publish
 - [x] Trainee Mini App: view exercises, log actual reps/weight per set, add comments, complete
-- [x] Bot `/report` command: plain text summary of latest completed session
-- [x] Trainer/trainee notifications via Telegram bot messages (publish → notify trainee, complete → notify trainer)
-- [x] Bot FSM flows (classic chat-based) mirroring the Mini App flows
+- [x] Bot `/report` command: plain text summary of last 3 sessions with ↑/↓ comparison
+- [x] Bot `/register` command: first user becomes trainer, second becomes trainee
+- [x] Bot `/open` command: generates 24-hour token for Telegram Desktop access
+- [x] Trainer/trainee notifications (publish → notify trainee, complete → notify trainer)
 - [x] FastAPI REST API backing both Mini Apps
-- [x] SQLAlchemy models: Workout, Exercise, PlannedSet, WorkoutSession, ExecutedSet, ExerciseComment
-- [x] Local dev with ngrok for Telegram Mini App
+- [x] SQLAlchemy models + Alembic migrations
+- [x] Telegram init data HMAC-SHA256 verification
+- [x] Bot-issued token auth (for Telegram Desktop where initData is empty)
+- [x] Workout history tab in trainee Mini App with progress comparison (↑/↓ vs prior session)
+- [x] Edit published workout + notify trainee of changes
+- [x] Drag-and-drop exercise reordering (SortableJS, self-hosted)
+- [x] Tests: unit + integration coverage for API, auth, and token paths
 
 ---
 
-## Phase 1 — Security & Correctness (before sharing with anyone)
+## Phase 4 — UX Polish (remaining)
 
-- [ ] **Validate Telegram init data** in API: verify the `initData` signature sent by Mini Apps using HMAC-SHA256, so user identity can't be spoofed
-- [ ] **Remove `user_id` from request bodies** once init data validation is in place — derive it from verified init data instead
-- [ ] **Add Alembic** for database migrations so schema changes don't require manual DB wipes
-
----
-
-## Phase 2 — Multi-User Support
-
-- [ ] **Support multiple trainer-trainee pairs**: replace hardcoded TRAINER_ID/TRAINEE_ID env vars with a roles table or a registration flow
-- [ ] **Trainer registration flow**: `/register_trainer` command or invite-link-based setup
-- [ ] **Trainee invite**: trainer can generate a one-time link for a trainee to join
-
----
-
-## Phase 3 — Workout History & Progress
-
-- [ ] **Workout history for trainee**: list of past sessions with dates in the Mini App
-- [ ] **Historical report for trainer**: `/report` shows last N sessions, or a Mini App history view
-- [ ] **Progress comparison**: highlight when trainee improved reps/weight vs. prior session
-
----
-
-## Phase 4 — UX Polish
-
-- [ ] **Edit published workout**: allow trainer to modify exercises/sets after publishing (triggers re-notification to trainee)
-- [ ] **Exercise reordering**: drag-and-drop or up/down buttons in trainer Mini App
-- [ ] **Error handling in Mini Apps**: retry on network failure, clear error messages on API errors
+- [ ] **Error handling in Mini Apps**: show clear error messages on API failures, retry on network error
 - [ ] **Local time display**: show session timestamps in user's local timezone
 - [ ] **Rest timer**: optional countdown timer between sets in trainee Mini App
 
@@ -49,11 +29,9 @@
 
 ## Phase 5 — Production Readiness
 
-- [ ] **Tests**: unit tests for API endpoints; integration test for the full workout → session → report flow
-- [ ] **Logging**: structured logs with user actions and errors
 - [ ] **Rate limiting** on API endpoints
 - [ ] **Input validation**: max lengths on descriptions and comments
-- [ ] **Deployment**: move off ngrok; deploy FastAPI to a real host (e.g., Railway, Fly.io, VPS)
+- [ ] **Deployment**: move off ngrok; deploy to a real host (Railway, Fly.io, VPS)
 
 ---
 
