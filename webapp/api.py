@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
@@ -115,13 +115,13 @@ async def get_or_create_draft(current_user: int = Depends(require_trainer)):
 
 
 class SetIn(BaseModel):
-    reps: int | None = None
-    weight: float | None = None
+    reps: int | None = Field(default=None, ge=0, le=9999)
+    weight: float | None = Field(default=None, ge=0, le=9999)
 
 
 class ExerciseIn(BaseModel):
-    description: str
-    sets: list[SetIn]
+    description: str = Field(min_length=1, max_length=200)
+    sets: list[SetIn] = Field(min_length=1, max_length=20)
 
 
 @router.post("/workout/{workout_id}/exercises")
@@ -156,8 +156,8 @@ async def add_exercise(workout_id: int, body: ExerciseIn, current_user: int = De
 
 
 class SetUpdateIn(BaseModel):
-    reps: int | None = None
-    weight: float | None = None
+    reps: int | None = Field(default=None, ge=0, le=9999)
+    weight: float | None = Field(default=None, ge=0, le=9999)
 
 
 @router.patch("/sets/{planned_set_id}")
@@ -313,8 +313,8 @@ async def get_current_workout(current_user: int = Depends(require_trainee)):
 class LogSetIn(BaseModel):
     session_id: int
     planned_set_id: int
-    actual_reps: int | None = None
-    actual_weight: float | None = None
+    actual_reps: int | None = Field(default=None, ge=0, le=9999)
+    actual_weight: float | None = Field(default=None, ge=0, le=9999)
 
 
 @router.post("/sets/log")
@@ -339,7 +339,7 @@ async def log_set(body: LogSetIn, current_user: int = Depends(require_trainee)):
 class CommentIn(BaseModel):
     session_id: int
     exercise_id: int
-    comment: str
+    comment: str = Field(min_length=1, max_length=1000)
 
 
 @router.post("/comments")
