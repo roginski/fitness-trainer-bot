@@ -22,6 +22,12 @@ from webapp.auth import get_current_user
 router = APIRouter(prefix="/api")
 
 
+def _utc_iso(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 async def _send_telegram(chat_id: int, text: str) -> None:
     async with httpx.AsyncClient() as client:
         await client.post(
@@ -387,7 +393,7 @@ async def get_history(current_user: int = Depends(require_trainee)):
         {
             "session_id": s.id,
             "workout_id": s.workout_id,
-            "completed_at": s.completed_at.isoformat(),
+            "completed_at": _utc_iso(s.completed_at),
             "exercise_count": len(s.workout.exercises),
         }
         for s in sessions
@@ -430,7 +436,7 @@ async def get_session_detail(session_id: int, current_user: int = Depends(requir
 
     return {
         "session_id": session.id,
-        "completed_at": session.completed_at.isoformat(),
+        "completed_at": _utc_iso(session.completed_at),
         "workout": {
             "exercises": [
                 {
