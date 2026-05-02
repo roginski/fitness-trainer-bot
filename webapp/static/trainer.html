@@ -275,19 +275,35 @@
     return h;
   }
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function tgAlert(msg, cb) {
+    if (tg.initDataUnsafe?.user) tg.showAlert(msg, cb);
+    else { alert(msg); cb?.(); }
+  }
+
+  function tgConfirm(msg, cb) {
+    if (tg.initDataUnsafe?.user) tg.showConfirm(msg, cb);
+    else cb(confirm(msg));
+  }
+
   // ── Init ─────────────────────────────────────────────────────────────────
 
   async function init() {
-    const res = await fetch(`/api/workout/draft`, { headers: authHeaders() });
-    if (!res.ok) { showError('Failed to load workout'); return; }
-    const data = await res.json();
-    workoutId = data.workout_id;
-    isPublished = data.is_published;
-    exercises = data.exercises;
-    document.getElementById('published-banner').style.display = isPublished ? '' : 'none';
-    document.getElementById('btn-action').textContent = isPublished ? 'Save & Notify' : 'Publish';
-    document.getElementById('btn-new-workout').style.display = isPublished ? '' : 'none';
-    renderExercises();
+    try {
+      const res = await fetch(`/api/workout/draft`, { headers: authHeaders() });
+      if (!res.ok) { showError('Failed to load workout.', true); return; }
+      const data = await res.json();
+      workoutId = data.workout_id;
+      isPublished = data.is_published;
+      exercises = data.exercises;
+      document.getElementById('published-banner').style.display = isPublished ? '' : 'none';
+      document.getElementById('btn-action').textContent = isPublished ? 'Save & Notify' : 'Publish';
+      document.getElementById('btn-new-workout').style.display = isPublished ? '' : 'none';
+      renderExercises();
+    } catch (e) {
+      showError('Network error. Check your connection.', true);
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -324,11 +340,18 @@
         const moved = exercises.splice(oldIndex, 1)[0];
         exercises.splice(newIndex, 0, moved);
         const ids = exercises.map(e => e.id);
-        await fetch(`/api/workout/${workoutId}/exercises/reorder`, {
-          method: 'POST',
-          headers: authHeaders(true),
-          body: JSON.stringify({ exercise_ids: ids }),
-        });
+        try {
+          const res = await fetch(`/api/workout/${workoutId}/exercises/reorder`, {
+            method: 'POST',
+            headers: authHeaders(true),
+            body: JSON.stringify({ exercise_ids: ids }),
+          });
+          if (!res.ok) throw new Error();
+        } catch (e) {
+          exercises.splice(newIndex, 1);
+          exercises.splice(oldIndex, 0, moved);
+          tgAlert('Failed to save order. Please try again.');
+        }
         renderExercises();
       },
     });
@@ -447,10 +470,10 @@
 
   async function saveExercise() {
     const name = document.getElementById('ex-name').value.trim();
-    if (!name) { tg.showAlert('Please enter an exercise name.'); return; }
+    if (!name) { tgAlert('Please enter an exercise name.'); return; }
 
     const rows = document.querySelectorAll('.set-row');
-    if (rows.length === 0) { tg.showAlert('Add at least one set.'); return; }
+    if (rows.length === 0) { tgAlert('Add at least one set.'); return; }
 
     const sets = Array.from(rows).map(row => {
       const n = row.id.replace('sr-', '');
@@ -462,19 +485,19 @@
       };
     });
 
-    const res = await fetch(`/api/workout/${workoutId}/exercises`, {
-      method: 'POST',
-      headers: authHeaders(true),
-      body: JSON.stringify({ description: name, sets }),
-    });
-
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/workout/${workoutId}/exercises`, {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify({ description: name, sets }),
+      });
+      if (!res.ok) throw new Error();
       const data = await res.json();
       exercises = data.exercises;
       hideForm();
       renderExercises();
-    } else {
-      tg.showAlert('Failed to save exercise.');
+    } catch (e) {
+      tgAlert('Failed to save exercise. Please try again.');
     }
   }
 
@@ -484,15 +507,20 @@
     const value = rawValue === '' ? null : field === 'reps' ? parseInt(rawValue) : parseFloat(rawValue);
     const body = {};
     body[field] = value;
-    await fetch(`/api/sets/${psId}`, {
-      method: 'PATCH',
-      headers: authHeaders(true),
-      body: JSON.stringify(body),
-    });
-    for (const ex of exercises) {
-      for (const ps of ex.planned_sets) {
-        if (ps.id === psId) ps[field] = value;
+    try {
+      const res = await fetch(`/api/sets/${psId}`, {
+        method: 'PATCH',
+        headers: authHeaders(true),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      for (const ex of exercises) {
+        for (const ps of ex.planned_sets) {
+          if (ps.id === psId) ps[field] = value;
+        }
       }
+    } catch (e) {
+      tgAlert('Failed to save. Please try again.');
     }
   }
 
@@ -501,60 +529,63 @@
   async function deleteExercise(id) {
     const doDelete = async (confirmed) => {
       if (!confirmed) return;
-      const res = await fetch(`/api/exercises/${id}`, { method: 'DELETE', headers: authHeaders() });
-      if (res.ok) {
+      try {
+        const res = await fetch(`/api/exercises/${id}`, { method: 'DELETE', headers: authHeaders() });
+        if (!res.ok) throw new Error();
         const data = await res.json();
         exercises = data.exercises;
         renderExercises();
+      } catch (e) {
+        tgAlert('Failed to delete exercise. Please try again.');
       }
     };
-    if (tg.initDataUnsafe?.user) tg.showConfirm('Remove this exercise?', doDelete);
-    else doDelete(confirm('Remove this exercise?'));
+    tgConfirm('Remove this exercise?', doDelete);
   }
 
   // ── Publish / Save & Notify ───────────────────────────────────────────────
 
   async function primaryAction() {
     if (exercises.length === 0) {
-      tg.showAlert('Add at least one exercise first.');
+      tgAlert('Add at least one exercise first.');
       return;
     }
     if (isPublished) {
-      const msg = 'Notify your trainee that the workout has changed?';
       const doNotify = async (confirmed) => {
         if (!confirmed) return;
-        const res = await fetch(`/api/workout/${workoutId}/notify`, {
-          method: 'POST', headers: authHeaders(true), body: JSON.stringify({}),
-        });
-        if (res.ok) {
-          if (tg.initDataUnsafe?.user) tg.showAlert('Trainee notified! ✅', () => tg.close());
-          else alert('Trainee notified! ✅');
+        try {
+          const res = await fetch(`/api/workout/${workoutId}/notify`, {
+            method: 'POST', headers: authHeaders(true), body: JSON.stringify({}),
+          });
+          if (!res.ok) throw new Error();
+          tgAlert('Trainee notified! ✅', () => tg.close());
+        } catch (e) {
+          tgAlert('Failed to send notification. Please try again.');
         }
       };
-      if (tg.initDataUnsafe?.user) tg.showConfirm(msg, doNotify);
-      else doNotify(confirm(msg));
+      tgConfirm('Notify your trainee that the workout has changed?', doNotify);
     } else {
-      const msg = 'Publish this workout? Your trainee will be notified.';
       const doPublish = async (confirmed) => {
         if (!confirmed) return;
-        const res = await fetch(`/api/workout/${workoutId}/publish`, {
-          method: 'POST', headers: authHeaders(true), body: JSON.stringify({}),
-        });
-        if (res.ok) {
-          if (tg.initDataUnsafe?.user) tg.showAlert('Workout published! ✅', () => tg.close());
-          else alert('Workout published! ✅');
+        try {
+          const res = await fetch(`/api/workout/${workoutId}/publish`, {
+            method: 'POST', headers: authHeaders(true), body: JSON.stringify({}),
+          });
+          if (!res.ok) throw new Error();
+          tgAlert('Workout published! ✅', () => tg.close());
+        } catch (e) {
+          tgAlert('Failed to publish. Please try again.');
         }
       };
-      if (tg.initDataUnsafe?.user) tg.showConfirm(msg, doPublish);
-      else doPublish(confirm(msg));
+      tgConfirm('Publish this workout? Your trainee will be notified.', doPublish);
     }
   }
 
   async function newWorkout() {
     const doCreate = async (confirmed) => {
       if (!confirmed) return;
-      const res = await fetch('/api/workout/new', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({}) });
-      if (res.ok) {
+      try {
+        const res = await fetch('/api/workout/new', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({}) });
+        if (!res.ok) throw new Error();
         const data = await res.json();
         workoutId = data.workout_id;
         isPublished = false;
@@ -563,11 +594,11 @@
         document.getElementById('btn-action').textContent = 'Publish';
         document.getElementById('btn-new-workout').style.display = 'none';
         renderExercises();
+      } catch (e) {
+        tgAlert('Failed to create new workout. Please try again.');
       }
     };
-    const msg = 'Start a new workout? The published one stays active until you publish the new one.';
-    if (tg.initDataUnsafe?.user) tg.showConfirm(msg, doCreate);
-    else doCreate(confirm(msg));
+    tgConfirm('Start a new workout? The published one stays active until you publish the new one.', doCreate);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -576,9 +607,12 @@
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function showError(msg) {
+  function showError(msg, retryable = false) {
+    const retryBtn = retryable
+      ? `<button class="btn btn-primary" style="margin-top:16px" onclick="init()">Retry</button>`
+      : '';
     document.getElementById('main-content').innerHTML =
-      `<div class="empty"><p style="color:#ff3b30">${msg}</p></div>`;
+      `<div class="empty"><p style="color:#ff3b30">${msg}</p>${retryBtn}</div>`;
   }
 
   init();

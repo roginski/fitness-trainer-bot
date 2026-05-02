@@ -206,6 +206,16 @@
     return h;
   }
 
+  function tgAlert(msg, cb) {
+    if (tg.initDataUnsafe?.user) tg.showAlert(msg, cb);
+    else { alert(msg); cb?.(); }
+  }
+
+  function tgConfirm(msg, cb) {
+    if (tg.initDataUnsafe?.user) tg.showConfirm(msg, cb);
+    else cb(confirm(msg));
+  }
+
   const H = authHeaders();
   const HJ = authHeaders(true);
 
@@ -227,19 +237,23 @@
   // ── Workout tab ───────────────────────────────────────────────────────────
 
   async function init() {
-    const res = await fetch(`/api/workout/current`, { headers: H });
-    if (!res.ok) { showError('Failed to load workout.'); return; }
-    const data = await res.json();
+    try {
+      const res = await fetch(`/api/workout/current`, { headers: H });
+      if (!res.ok) { showError('Failed to load workout.', true); return; }
+      const data = await res.json();
 
-    if (!data.workout) {
-      document.getElementById('main-content').innerHTML =
-        `<div class="empty"><div class="empty-icon">🏖️</div><p>Your trainer hasn't published a workout yet.</p></div>`;
-      return;
+      if (!data.workout) {
+        document.getElementById('main-content').innerHTML =
+          `<div class="empty"><div class="empty-icon">🏖️</div><p>Your trainer hasn't published a workout yet.</p></div>`;
+        return;
+      }
+
+      sessionId = data.session_id;
+      exercises = data.workout.exercises;
+      render();
+    } catch (e) {
+      showError('Network error. Check your connection.', true);
     }
-
-    sessionId = data.session_id;
-    exercises = data.workout.exercises;
-    render();
   }
 
   function render() {
@@ -328,41 +342,47 @@
     const ex = exercises.find(e => e.id === exId);
     if (!ex) return;
 
-    for (const ps of ex.planned_sets) {
-      const repsVal   = document.getElementById(`reps-${ps.id}`)?.value;
-      const weightVal = document.getElementById(`wt-${ps.id}`)?.value;
-      await fetch('/api/sets/log', {
-        method: 'POST', headers: HJ,
-        body: JSON.stringify({
-          session_id: sessionId, planned_set_id: ps.id,
-          actual_reps:   repsVal   ? parseInt(repsVal)    : null,
-          actual_weight: weightVal ? parseFloat(weightVal) : null,
-        }),
+    try {
+      for (const ps of ex.planned_sets) {
+        const repsVal   = document.getElementById(`reps-${ps.id}`)?.value;
+        const weightVal = document.getElementById(`wt-${ps.id}`)?.value;
+        const res = await fetch('/api/sets/log', {
+          method: 'POST', headers: HJ,
+          body: JSON.stringify({
+            session_id: sessionId, planned_set_id: ps.id,
+            actual_reps:   repsVal   ? parseInt(repsVal)    : null,
+            actual_weight: weightVal ? parseFloat(weightVal) : null,
+          }),
+        });
+        if (!res.ok) throw new Error();
+        ps.executed = {
+          reps:   repsVal   ? parseInt(repsVal)    : null,
+          weight: weightVal ? parseFloat(weightVal) : null,
+        };
+      }
+
+      const comment = document.getElementById(`comment-${exId}`)?.value.trim();
+      if (comment) {
+        const res = await fetch('/api/comments', {
+          method: 'POST', headers: HJ,
+          body: JSON.stringify({ session_id: sessionId, exercise_id: exId, comment }),
+        });
+        if (!res.ok) throw new Error();
+        ex.comment = comment;
+      }
+
+      document.getElementById(`icon-${exId}`).textContent = '✅';
+      ex.planned_sets.forEach(ps => {
+        document.getElementById(`reps-${ps.id}`)?.classList.add('logged');
+        document.getElementById(`wt-${ps.id}`)?.classList.add('logged');
       });
-      ps.executed = {
-        reps:   repsVal   ? parseInt(repsVal)    : null,
-        weight: weightVal ? parseFloat(weightVal) : null,
-      };
+
+      updateCompleteButton();
+      document.getElementById(`body-${exId}`)?.classList.remove('open');
+      document.getElementById(`chev-${exId}`)?.classList.remove('open');
+    } catch (e) {
+      tgAlert('Failed to save. Please try again.');
     }
-
-    const comment = document.getElementById(`comment-${exId}`)?.value.trim();
-    if (comment) {
-      await fetch('/api/comments', {
-        method: 'POST', headers: HJ,
-        body: JSON.stringify({ session_id: sessionId, exercise_id: exId, comment }),
-      });
-      ex.comment = comment;
-    }
-
-    document.getElementById(`icon-${exId}`).textContent = '✅';
-    ex.planned_sets.forEach(ps => {
-      document.getElementById(`reps-${ps.id}`)?.classList.add('logged');
-      document.getElementById(`wt-${ps.id}`)?.classList.add('logged');
-    });
-
-    updateCompleteButton();
-    document.getElementById(`body-${exId}`)?.classList.remove('open');
-    document.getElementById(`chev-${exId}`)?.classList.remove('open');
   }
 
   function updateCompleteButton() {
@@ -371,24 +391,23 @@
   }
 
   async function completeWorkout() {
-    const doComplete = async () => {
-      const res = await fetch(`/api/sessions/${sessionId}/complete`, {
-        method: 'POST', headers: HJ, body: JSON.stringify({}),
-      });
-      if (res.ok) {
+    const doComplete = async (confirmed) => {
+      if (!confirmed) return;
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}/complete`, {
+          method: 'POST', headers: HJ, body: JSON.stringify({}),
+        });
+        if (!res.ok) throw new Error();
         document.getElementById('main-content').innerHTML =
           `<div class="done-banner">🎉 Workout complete! Great job!</div>`;
         document.getElementById('btn-complete').style.display = 'none';
-        historyLoaded = false; // reset so history reloads next time
+        historyLoaded = false;
         if (tg.initDataUnsafe?.user) tg.close();
+      } catch (e) {
+        tgAlert('Failed to complete workout. Please try again.');
       }
     };
-
-    if (tg.initDataUnsafe?.user) {
-      tg.showConfirm('Mark this workout as complete?', (confirmed) => { if (confirmed) doComplete(); });
-    } else {
-      if (confirm('Mark this workout as complete?')) doComplete();
-    }
+    tgConfirm('Mark this workout as complete?', doComplete);
   }
 
   // ── History tab ───────────────────────────────────────────────────────────
@@ -396,9 +415,16 @@
   async function loadHistory() {
     historyLoaded = true;
     const container = document.getElementById('history-content');
-    const res = await fetch('/api/history', { headers: H });
-    if (!res.ok) { container.innerHTML = `<div class="empty"><p style="color:var(--red)">Failed to load history.</p></div>`; return; }
-    const sessions = await res.json();
+    let sessions;
+    try {
+      const res = await fetch('/api/history', { headers: H });
+      if (!res.ok) throw new Error();
+      sessions = await res.json();
+    } catch (e) {
+      container.innerHTML = `<div class="empty"><p style="color:var(--red)">Failed to load history.</p></div>`;
+      historyLoaded = false;
+      return;
+    }
 
     if (sessions.length === 0) {
       container.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><p>No completed workouts yet.</p></div>`;
@@ -436,11 +462,15 @@
       body.classList.add('open');
       chev.classList.add('open');
       if (body.dataset.loaded !== 'true') {
-        const res = await fetch(`/api/sessions/${sessionId}`, { headers: H });
-        if (!res.ok) { body.innerHTML = '<p style="color:var(--red);padding:8px 0">Failed to load.</p>'; return; }
-        const data = await res.json();
-        body.innerHTML = renderSessionDetail(data);
-        body.dataset.loaded = 'true';
+        try {
+          const res = await fetch(`/api/sessions/${sessionId}`, { headers: H });
+          if (!res.ok) throw new Error();
+          const data = await res.json();
+          body.innerHTML = renderSessionDetail(data);
+          body.dataset.loaded = 'true';
+        } catch (e) {
+          body.innerHTML = '<p style="color:var(--red);padding:8px 0">Failed to load.</p>';
+        }
       }
     }
   }
@@ -494,9 +524,12 @@
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function showError(msg) {
+  function showError(msg, retryable = false) {
+    const retryBtn = retryable
+      ? `<button style="margin-top:16px;background:var(--btn);color:var(--btn-t);border:none;border-radius:10px;padding:11px 24px;font-size:15px;font-weight:600;cursor:pointer" onclick="init()">Retry</button>`
+      : '';
     document.getElementById('main-content').innerHTML =
-      `<div class="empty"><p style="color:var(--red)">${msg}</p></div>`;
+      `<div class="empty"><p style="color:var(--red)">${msg}</p>${retryBtn}</div>`;
   }
 
   init();
