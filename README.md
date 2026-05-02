@@ -1,6 +1,6 @@
 # Fitness Trainer Bot
 
-> This project is a coding exercise in LLM-driven development. Not a single line of code was written manually — everything was generated through conversation with [Claude Code](https://claude.ai/code).
+> This project is a coding exercise in LLM-driven development. Not a single line of code was written manually — everything was generated through conversation with Claude Code.
 
 A Telegram bot + Mini App for personal trainer and trainee. The trainer builds workouts in a web UI; the trainee logs sets and tracks progress session-over-session.
 
