@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
@@ -18,6 +18,7 @@ from fitness_bot.models import (
     WorkoutSession,
 )
 from webapp.auth import get_current_user
+from webapp.limiter import limiter
 
 router = APIRouter(prefix="/api")
 
@@ -80,7 +81,8 @@ async def require_trainee(current_user: int = Depends(get_current_user)) -> int:
 # ---------------------------------------------------------------------------
 
 @router.get("/workout/draft")
-async def get_or_create_draft(current_user: int = Depends(require_trainer)):
+@limiter.limit("60/minute")
+async def get_or_create_draft(request: Request, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         result = await db.execute(
             select(Workout)
@@ -125,7 +127,8 @@ class ExerciseIn(BaseModel):
 
 
 @router.post("/workout/{workout_id}/exercises")
-async def add_exercise(workout_id: int, body: ExerciseIn, current_user: int = Depends(require_trainer)):
+@limiter.limit("30/minute")
+async def add_exercise(request: Request, workout_id: int, body: ExerciseIn, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         result = await db.execute(
             select(Exercise)
@@ -161,7 +164,8 @@ class SetUpdateIn(BaseModel):
 
 
 @router.patch("/sets/{planned_set_id}")
-async def update_planned_set(planned_set_id: int, body: SetUpdateIn, current_user: int = Depends(require_trainer)):
+@limiter.limit("60/minute")
+async def update_planned_set(request: Request, planned_set_id: int, body: SetUpdateIn, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         ps = await db.get(PlannedSet, planned_set_id)
         if not ps:
@@ -179,7 +183,8 @@ class ReorderIn(BaseModel):
 
 
 @router.post("/workout/{workout_id}/exercises/reorder")
-async def reorder_exercises(workout_id: int, body: ReorderIn, current_user: int = Depends(require_trainer)):
+@limiter.limit("30/minute")
+async def reorder_exercises(request: Request, workout_id: int, body: ReorderIn, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         for new_order, ex_id in enumerate(body.exercise_ids, 1):
             exercise = await db.get(Exercise, ex_id)
@@ -190,7 +195,8 @@ async def reorder_exercises(workout_id: int, body: ReorderIn, current_user: int 
 
 
 @router.delete("/exercises/{exercise_id}")
-async def remove_exercise(exercise_id: int, current_user: int = Depends(require_trainer)):
+@limiter.limit("30/minute")
+async def remove_exercise(request: Request, exercise_id: int, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         exercise = await db.get(Exercise, exercise_id)
         if not exercise:
@@ -209,7 +215,8 @@ async def remove_exercise(exercise_id: int, current_user: int = Depends(require_
 
 
 @router.post("/workout/{workout_id}/publish")
-async def publish_workout(workout_id: int, current_user: int = Depends(require_trainer)):
+@limiter.limit("10/minute")
+async def publish_workout(request: Request, workout_id: int, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         workout = await db.get(Workout, workout_id)
         if not workout:
@@ -222,7 +229,8 @@ async def publish_workout(workout_id: int, current_user: int = Depends(require_t
 
 
 @router.post("/workout/new")
-async def create_new_draft(current_user: int = Depends(require_trainer)):
+@limiter.limit("10/minute")
+async def create_new_draft(request: Request, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         workout = Workout()
         db.add(workout)
@@ -231,7 +239,8 @@ async def create_new_draft(current_user: int = Depends(require_trainer)):
 
 
 @router.post("/workout/{workout_id}/notify")
-async def notify_workout_update(workout_id: int, current_user: int = Depends(require_trainer)):
+@limiter.limit("10/minute")
+async def notify_workout_update(request: Request, workout_id: int, current_user: int = Depends(require_trainer)):
     async with async_session() as db:
         workout = await db.get(Workout, workout_id)
         if not workout or not workout.is_published:
@@ -245,7 +254,8 @@ async def notify_workout_update(workout_id: int, current_user: int = Depends(req
 # ---------------------------------------------------------------------------
 
 @router.get("/workout/current")
-async def get_current_workout(current_user: int = Depends(require_trainee)):
+@limiter.limit("60/minute")
+async def get_current_workout(request: Request, current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         result = await db.execute(
             select(Workout)
@@ -318,7 +328,8 @@ class LogSetIn(BaseModel):
 
 
 @router.post("/sets/log")
-async def log_set(body: LogSetIn, current_user: int = Depends(require_trainee)):
+@limiter.limit("60/minute")
+async def log_set(request: Request, body: LogSetIn, current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         await db.execute(
             delete(ExecutedSet).where(
@@ -343,7 +354,8 @@ class CommentIn(BaseModel):
 
 
 @router.post("/comments")
-async def save_comment(body: CommentIn, current_user: int = Depends(require_trainee)):
+@limiter.limit("30/minute")
+async def save_comment(request: Request, body: CommentIn, current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         await db.execute(
             delete(ExerciseComment).where(
@@ -361,7 +373,8 @@ async def save_comment(body: CommentIn, current_user: int = Depends(require_trai
 
 
 @router.post("/sessions/{session_id}/complete")
-async def complete_session(session_id: int, current_user: int = Depends(require_trainee)):
+@limiter.limit("10/minute")
+async def complete_session(request: Request, session_id: int, current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         session = await db.get(WorkoutSession, session_id)
         if not session:
@@ -378,7 +391,8 @@ async def complete_session(session_id: int, current_user: int = Depends(require_
 # ---------------------------------------------------------------------------
 
 @router.get("/history")
-async def get_history(current_user: int = Depends(require_trainee)):
+@limiter.limit("30/minute")
+async def get_history(request: Request, current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         result = await db.execute(
             select(WorkoutSession)
@@ -401,7 +415,8 @@ async def get_history(current_user: int = Depends(require_trainee)):
 
 
 @router.get("/sessions/{session_id}")
-async def get_session_detail(session_id: int, current_user: int = Depends(require_trainee)):
+@limiter.limit("30/minute")
+async def get_session_detail(request: Request, session_id: int, current_user: int = Depends(require_trainee)):
     async with async_session() as db:
         session = await db.get(
             WorkoutSession,
